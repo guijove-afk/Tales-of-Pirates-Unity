@@ -13,20 +13,25 @@ public class PlayerCombat : NetworkBehaviour
     [Header("Debug")]
     [SerializeField] private bool showCombatDebugLogs = true;
 
-    // Estado
     private float lastAttackTime;
     private bool isAttacking;
     private bool combatEnabled = true;
-    private bool attackHitPending = false;
+    private bool attackHitPending;
+    private bool autoAttackEnabled;
 
-    // Referencias
     private PlayerStats stats;
+    private PlayerMovement movement;
     private Animator anim;
     private Transform currentTarget;
+
+    public event Action OnAttackStarted;
+    public event Action OnAttackFinished;
+    public event Action<Transform> OnTargetChanged;
 
     void Awake()
     {
         stats = GetComponent<PlayerStats>();
+        movement = GetComponent<PlayerMovement>();
         anim = GetComponent<Animator>();
     }
 
@@ -34,105 +39,89 @@ public class PlayerCombat : NetworkBehaviour
     {
         if (!isLocalPlayer) return;
 
-        // Input de ataque (SPACE)
         if (Input.GetKeyDown(KeyCode.Space))
-        {
             TryAttackTarget();
-        }
-    }
 
-    #region Target Selection
+        TickAutoAttack();
+    }
 
     public void SetTarget(Transform target)
     {
         currentTarget = target;
+        OnTargetChanged?.Invoke(target);
+
         if (showCombatDebugLogs)
             Debug.Log("[PlayerCombat] Alvo definido: " + (target != null ? target.name : "NULL"));
     }
 
     public void ClearTarget()
     {
+        autoAttackEnabled = false;
         currentTarget = null;
+        attackHitPending = false;
+        OnTargetChanged?.Invoke(null);
     }
 
-    #endregion
+    public void StartAutoAttack(Transform target)
+    {
+        if (target == null)
+        {
+            ClearTarget();
+            return;
+        }
 
-    #region Attack Flow
+        SetTarget(target);
+        autoAttackEnabled = true;
+        TryAttackTarget();
+    }
+
+    public void StopAutoAttack()
+    {
+        autoAttackEnabled = false;
+    }
 
     [Client]
     public void TryAttackTarget()
     {
-        // CORRECAO: Verifica se stats foi inicializado
-        if (stats == null)
-        {
-            Debug.LogWarning("[PlayerCombat] TryAttackTarget CANCELADO: PlayerStats eh null");
+        if (!CanAttackNow())
             return;
-        }
 
-        // CORRECAO: Se nao tem vida maxima definida, ainda nao foi inicializado
-        if (stats.MaxHealth <= 0)
-        {
-            Debug.LogWarning("[PlayerCombat] TryAttackTarget CANCELADO: PlayerStats ainda nao inicializado (MaxHealth=" + stats.MaxHealth + ")");
-            return;
-        }
-
-        if (!combatEnabled)
-        {
-            if (showCombatDebugLogs) Debug.Log("[PlayerCombat] TryAttackTarget CANCELADO: combat desabilitado");
-            return;
-        }
-
-        if (stats.IsDead)
-        {
-            if (showCombatDebugLogs) Debug.Log("[PlayerCombat] TryAttackTarget CANCELADO: player esta morto (HP=" + stats.Health + "/" + stats.MaxHealth + ")");
-            return;
-        }
-
-        if (Time.time < lastAttackTime + (attackCooldown / Mathf.Max(stats.AttackSpeed, 0.1f)))
-        {
-            if (showCombatDebugLogs) Debug.Log("[PlayerCombat] TryAttackTarget CANCELADO: em cooldown");
-            return;
-        }
-
-        if (currentTarget == null)
-        {
-            if (showCombatDebugLogs) Debug.Log("[PlayerCombat] TryAttackTarget CANCELADO: sem alvo");
-            return;
-        }
-
-        // Verifica distancia
         float dist = Vector3.Distance(transform.position, currentTarget.position);
         if (dist > attackRange)
         {
-            if (showCombatDebugLogs) Debug.Log("[PlayerCombat] TryAttackTarget CANCELADO: alvo fora de range (" + dist.ToString("F2") + " > " + attackRange + ")");
+            if (autoAttackEnabled)
+                ChaseCurrentTarget();
+
+            if (showCombatDebugLogs)
+                Debug.Log("[PlayerCombat] TryAttackTarget CANCELADO: alvo fora de range (" + dist.ToString("F2") + " > " + attackRange + ")");
             return;
         }
 
-        // Olha para o alvo
+        movement?.StopMovement();
         transform.LookAt(new Vector3(currentTarget.position.x, transform.position.y, currentTarget.position.z));
 
         if (showCombatDebugLogs)
         {
             Debug.Log("[PlayerCombat] ===============================================");
             Debug.Log("[PlayerCombat] TryAttackTarget() -> INICIANDO ATAQUE");
-            Debug.Log("[PlayerCombat]   Alvo: " + currentTarget.name);
-            Debug.Log("[PlayerCombat]   Distancia: " + dist.ToString("F2") + "m");
-            Debug.Log("[PlayerCombat]   HP: " + stats.Health + "/" + stats.MaxHealth);
+            Debug.Log("[PlayerCombat] Alvo: " + currentTarget.name);
+            Debug.Log("[PlayerCombat] Distancia: " + dist.ToString("F2") + "m");
+            Debug.Log("[PlayerCombat] HP: " + stats.Health + "/" + stats.MaxHealth);
             Debug.Log("[PlayerCombat] ===============================================");
         }
 
         lastAttackTime = Time.time;
         isAttacking = true;
         attackHitPending = false;
+        OnAttackStarted?.Invoke();
 
-        // Dispara animacao local
         if (anim != null)
         {
+            anim.ResetTrigger("Attack");
             anim.SetTrigger("Attack");
             anim.SetBool("IsAttacking", true);
         }
 
-        // Inicia sequencia de ataque no servidor
         NetworkIdentity targetNetId = currentTarget.GetComponent<NetworkIdentity>();
         if (targetNetId != null)
         {
@@ -144,6 +133,122 @@ public class PlayerCombat : NetworkBehaviour
         }
     }
 
+    private bool CanAttackNow()
+    {
+        if (stats == null)
+        {
+            Debug.LogWarning("[PlayerCombat] TryAttackTarget CANCELADO: PlayerStats eh null");
+            return false;
+        }
+
+        if (stats.MaxHealth <= 0)
+        {
+            Debug.LogWarning("[PlayerCombat] TryAttackTarget CANCELADO: PlayerStats ainda nao inicializado (MaxHealth=" + stats.MaxHealth + ")");
+            return false;
+        }
+
+        if (!combatEnabled)
+        {
+            if (showCombatDebugLogs) Debug.Log("[PlayerCombat] TryAttackTarget CANCELADO: combat desabilitado");
+            return false;
+        }
+
+        if (stats.IsDead)
+        {
+            if (showCombatDebugLogs) Debug.Log("[PlayerCombat] TryAttackTarget CANCELADO: player esta morto");
+            return false;
+        }
+
+        if (isAttacking)
+        {
+            if (showCombatDebugLogs) Debug.Log("[PlayerCombat] TryAttackTarget CANCELADO: ataque em andamento");
+            return false;
+        }
+
+        if (Time.time < lastAttackTime + GetAttackInterval())
+        {
+            if (showCombatDebugLogs) Debug.Log("[PlayerCombat] TryAttackTarget CANCELADO: em cooldown");
+            return false;
+        }
+
+        if (currentTarget == null)
+        {
+            if (showCombatDebugLogs) Debug.Log("[PlayerCombat] TryAttackTarget CANCELADO: sem alvo");
+            return false;
+        }
+
+        if (!IsTargetAlive(currentTarget))
+        {
+            if (showCombatDebugLogs) Debug.Log("[PlayerCombat] TryAttackTarget CANCELADO: alvo invalido ou morto");
+            ClearTarget();
+            return false;
+        }
+
+        return true;
+    }
+
+    private void TickAutoAttack()
+    {
+        if (!autoAttackEnabled)
+            return;
+
+        if (currentTarget == null || !IsTargetAlive(currentTarget))
+        {
+            if (showCombatDebugLogs)
+                Debug.Log("[PlayerCombat] AutoAttack cancelado: alvo perdido ou morto");
+
+            movement?.StopMovement();
+            ClearTarget();
+            return;
+        }
+
+        if (!combatEnabled || stats == null || stats.IsDead)
+        {
+            movement?.StopMovement();
+            return;
+        }
+
+        if (isAttacking)
+            return;
+
+        float distance = Vector3.Distance(transform.position, currentTarget.position);
+        if (distance > attackRange)
+        {
+            ChaseCurrentTarget();
+            return;
+        }
+
+        if (movement != null && movement.IsMoving)
+            movement.StopMovement();
+
+        if (Time.time >= lastAttackTime + GetAttackInterval())
+            TryAttackTarget();
+    }
+
+    private void ChaseCurrentTarget()
+    {
+        if (movement == null || currentTarget == null)
+            return;
+
+        movement.FollowTarget(currentTarget, attackRange);
+    }
+
+    private float GetAttackInterval()
+    {
+        return attackCooldown / Mathf.Max(stats != null ? stats.AttackSpeed : 1f, 0.1f);
+    }
+
+    private bool IsTargetAlive(Transform target)
+    {
+        if (target == null)
+            return false;
+
+        ICharacterStats targetStats = target.GetComponent<ICharacterStats>()
+            ?? target.GetComponentInParent<ICharacterStats>();
+
+        return targetStats != null && !targetStats.IsDead;
+    }
+
     [Command]
     private void CmdStartAttack(uint targetNetId)
     {
@@ -151,10 +256,7 @@ public class PlayerCombat : NetworkBehaviour
             Debug.Log("[PlayerCombat] CmdStartAttack recebido | targetNetId=" + targetNetId + " | isDead=" + stats.IsDead + " | HP=" + stats.Health + "/" + stats.MaxHealth);
 
         if (stats.IsDead)
-        {
             Debug.Log("[PlayerCombat] CmdStartAttack CANCELADO: player morto no servidor");
-            return;
-        }
     }
 
     [Client]
@@ -163,15 +265,9 @@ public class PlayerCombat : NetworkBehaviour
         if (showCombatDebugLogs)
             Debug.Log("[PlayerCombat] OnAttackHit (Animation Event) | isDead=" + stats.IsDead + " | isAttacking=" + isAttacking);
 
-        if (stats.IsDead)
+        if (stats.IsDead || currentTarget == null || !IsTargetAlive(currentTarget))
         {
-            if (showCombatDebugLogs) Debug.Log("[PlayerCombat] OnAttackHit IGNORADO: player morreu antes do hit");
-            return;
-        }
-
-        if (currentTarget == null)
-        {
-            if (showCombatDebugLogs) Debug.Log("[PlayerCombat] OnAttackHit IGNORADO: alvo perdido");
+            if (showCombatDebugLogs) Debug.Log("[PlayerCombat] OnAttackHit IGNORADO: alvo perdido ou player morto");
             return;
         }
 
@@ -179,9 +275,7 @@ public class PlayerCombat : NetworkBehaviour
 
         NetworkIdentity targetNetId = currentTarget.GetComponent<NetworkIdentity>();
         if (targetNetId != null)
-        {
             CmdPerformAttack(targetNetId.netId);
-        }
     }
 
     [Command]
@@ -191,10 +285,10 @@ public class PlayerCombat : NetworkBehaviour
         {
             Debug.Log("[PlayerCombat] ===============================================");
             Debug.Log("[PlayerCombat] CmdPerformAttack() no SERVIDOR");
-            Debug.Log("[PlayerCombat]   attacker=" + gameObject.name);
-            Debug.Log("[PlayerCombat]   targetNetId=" + targetNetId);
-            Debug.Log("[PlayerCombat]   isDead=" + stats.IsDead + " | HP=" + stats.Health + "/" + stats.MaxHealth);
-            Debug.Log("[PlayerCombat]   attackHitPending=" + attackHitPending);
+            Debug.Log("[PlayerCombat] attacker=" + gameObject.name);
+            Debug.Log("[PlayerCombat] targetNetId=" + targetNetId);
+            Debug.Log("[PlayerCombat] isDead=" + stats.IsDead + " | HP=" + stats.Health + "/" + stats.MaxHealth);
+            Debug.Log("[PlayerCombat] attackHitPending=" + attackHitPending);
             Debug.Log("[PlayerCombat] ===============================================");
         }
 
@@ -235,7 +329,6 @@ public class PlayerCombat : NetworkBehaviour
             return;
         }
 
-        // Verifica range no servidor
         float dist = Vector3.Distance(transform.position, targetObj.transform.position);
         if (dist > attackRange * 1.5f)
         {
@@ -244,20 +337,14 @@ public class PlayerCombat : NetworkBehaviour
             return;
         }
 
-        // Calcula dano
         int damage = CalculateDamage();
         bool isCritical = UnityEngine.Random.Range(0, 100) < stats.CriticalRate;
         if (isCritical)
-        {
             damage = Mathf.RoundToInt(damage * stats.CriticalDamage);
-        }
 
         Debug.Log("[PlayerCombat] " + gameObject.name + " causando " + damage + " dano em " + targetObj.name + " (crit=" + isCritical + ")");
 
-        // APLICA DANO NO ALVO
         targetStats.TakeDamage(damage, netId, DamageType.Physical);
-
-        // Consome stamina
         stats.RestoreStamina(-5);
 
         attackHitPending = false;
@@ -275,9 +362,14 @@ public class PlayerCombat : NetworkBehaviour
     public void OnAttackEnd()
     {
         if (showCombatDebugLogs) Debug.Log("[PlayerCombat] OnAttackEnd (Animation Event)");
+
         isAttacking = false;
         attackHitPending = false;
-        if (anim != null) anim.SetBool("IsAttacking", false);
+
+        if (anim != null)
+            anim.SetBool("IsAttacking", false);
+
+        OnAttackFinished?.Invoke();
     }
 
     [Server]
@@ -288,19 +380,18 @@ public class PlayerCombat : NetworkBehaviour
         return Mathf.Max(1, Mathf.RoundToInt(baseDamage * variance));
     }
 
-    #endregion
-
-    #region Public API
-
     public void SetCombatEnabled(bool enabled)
     {
         combatEnabled = enabled;
         if (!enabled)
         {
+            autoAttackEnabled = false;
             isAttacking = false;
             attackHitPending = false;
+            movement?.StopMovement();
             if (anim != null) anim.SetBool("IsAttacking", false);
         }
+
         if (showCombatDebugLogs) Debug.Log("[PlayerCombat] SetCombatEnabled=" + enabled);
     }
 
@@ -310,18 +401,15 @@ public class PlayerCombat : NetworkBehaviour
     }
 
     public bool IsAttacking => isAttacking;
+    public bool IsAutoAttacking => autoAttackEnabled;
     public Transform CurrentTarget => currentTarget;
+    public float AttackRange => attackRange;
 
-    // Metodo para debug - substitui Trace se nao existir
     public void Trace(string message)
     {
         if (showCombatDebugLogs)
             Debug.Log("[PlayerCombat] " + message);
     }
-
-    #endregion
-
-    #region Gizmos
 
     void OnDrawGizmosSelected()
     {
@@ -334,6 +422,4 @@ public class PlayerCombat : NetworkBehaviour
             Gizmos.DrawLine(transform.position, currentTarget.position);
         }
     }
-
-    #endregion
 }

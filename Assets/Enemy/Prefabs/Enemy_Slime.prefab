@@ -14,11 +14,9 @@ GameObject:
   - component: {fileID: 6878206331158100581}
   - component: {fileID: 8907105717376587141}
   - component: {fileID: 4070687695859679196}
-  - component: {fileID: 5758854382711931593}
   - component: {fileID: 8498944120783961051}
   - component: {fileID: 1638328534903513675}
   - component: {fileID: 3161381821837192327}
-  - component: {fileID: 1994389696251628248}
   m_Layer: 8
   m_Name: Enemy_Slime
   m_TagString: Untagged
@@ -165,28 +163,6 @@ CapsuleCollider:
   m_Height: 2
   m_Direction: 1
   m_Center: {x: 0, y: 1, z: 0}
---- !u!95 &5758854382711931593
-Animator:
-  serializedVersion: 7
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1796226381952085530}
-  m_Enabled: 1
-  m_Avatar: {fileID: 0}
-  m_Controller: {fileID: 0}
-  m_CullingMode: 0
-  m_UpdateMode: 0
-  m_ApplyRootMotion: 0
-  m_LinearVelocityBlending: 0
-  m_StabilizeFeet: 0
-  m_AnimatePhysics: 0
-  m_WarningMessage: 
-  m_HasTransformHierarchy: 1
-  m_AllowConstantClipSamplingOptimization: 1
-  m_KeepAnimatorStateOnDisable: 0
-  m_WriteDefaultValuesOnDisable: 0
 --- !u!114 &8498944120783961051
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -203,12 +179,30 @@ MonoBehaviour:
   syncDirection: 0
   syncMode: 0
   syncInterval: 0
-  enemyData: {fileID: 11400000, guid: 194c8f3e457e0234d8d84bc2a97042f3, type: 2}
-  aggroRange: 8
-  loseAggroRange: 15
-  attackCooldown: 1.5
-  wanderRadius: 5
-  wanderInterval: 5
+  _health: 100
+  _maxHealth: 100
+  _mana: 50
+  _maxMana: 50
+  _stamina: 100
+  _maxStamina: 100
+  _strength: 10
+  _agility: 5
+  _constitution: 10
+  _spirit: 5
+  _accuracy: 10
+  _luck: 5
+  _attack: 10
+  _defense: 5
+  _magicAttack: 5
+  _magicDefense: 5
+  _attackSpeed: 1
+  _moveSpeed: 3.5
+  _level: 1
+  _enemyName: Enemy
+  _experienceReward: 10
+  _goldReward: 5
+  _respawnTime: 10
+  showDebugLogs: 1
 --- !u!114 &1638328534903513675
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -225,8 +219,12 @@ MonoBehaviour:
   syncDirection: 0
   syncMode: 0
   syncInterval: 0
-  stoppingDistance: 1.5
+  aggroRange: 10
+  attackRange: 2
+  stopChaseRange: 20
+  attackCooldown: 1.5
   rotationSpeed: 10
+  showAIDebugLogs: 1
 --- !u!114 &3161381821837192327
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -241,21 +239,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::EnemySelection
   selectionCirclePrefab: {fileID: 8883838450545662633, guid: bc216cc87d4c80b49b6184072dd57212, type: 3}
   circleOffset: 0.05
---- !u!114 &1994389696251628248
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1796226381952085530}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 752027779dd69654699c19aeb4decb4e, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::EnemyHealthBar
-  enemyStats: {fileID: 0}
-  healthBarFill: {fileID: 5513918935662319055}
-  healthText: {fileID: 0}
 --- !u!1 &2597760864776075023
 GameObject:
   m_ObjectHideFlags: 0
@@ -1389,57 +1372,8 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents:
-    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: bfd49b05f15a58146922fa14d68c2959, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 1430484396402431111}
-    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: bfd49b05f15a58146922fa14d68c2959, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 4448859919119407834}
+    m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: bfd49b05f15a58146922fa14d68c2959, type: 3}
---- !u!1 &8393827629999456827 stripped
-GameObject:
-  m_CorrespondingSourceObject: {fileID: 919132149155446097, guid: bfd49b05f15a58146922fa14d68c2959, type: 3}
-  m_PrefabInstance: {fileID: 8700308036699766634}
-  m_PrefabAsset: {fileID: 0}
---- !u!114 &1430484396402431111
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 8393827629999456827}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 52d3b85b4b020814da45936776227955, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::EnemyAnimationEvents
-  syncMethod: 0
-  syncDirection: 0
-  syncMode: 0
-  syncInterval: 0
---- !u!95 &4448859919119407834
-Animator:
-  serializedVersion: 7
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 8393827629999456827}
-  m_Enabled: 1
-  m_Avatar: {fileID: 9000000, guid: 38b49695fc0a4418bbc350f2366660c5, type: 3}
-  m_Controller: {fileID: 9100000, guid: a0b2956cd04f3f2408b595294594bed8, type: 2}
-  m_CullingMode: 0
-  m_UpdateMode: 0
-  m_ApplyRootMotion: 0
-  m_LinearVelocityBlending: 0
-  m_StabilizeFeet: 0
-  m_AnimatePhysics: 0
-  m_WarningMessage: 
-  m_HasTransformHierarchy: 1
-  m_AllowConstantClipSamplingOptimization: 1
-  m_KeepAnimatorStateOnDisable: 0
-  m_WriteDefaultValuesOnDisable: 0
 --- !u!4 &9166810329769465985 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: bfd49b05f15a58146922fa14d68c2959, type: 3}

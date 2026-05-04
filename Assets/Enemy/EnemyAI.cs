@@ -1,45 +1,57 @@
 using UnityEngine;
+using UnityEngine.AI;
 using Mirror;
 using System;
 
 [RequireComponent(typeof(EnemyStats))]
-[RequireComponent(typeof(Animator))]
+[RequireComponent(typeof(NavMeshAgent))]
 public class EnemyAI : NetworkBehaviour
 {
     [Header("AI Settings")]
     [SerializeField] private float aggroRange = 10f;
     [SerializeField] private float attackRange = 2f;
-    [SerializeField] private float stopChaseRange = 15f;
+    [SerializeField] private float stopChaseRange = 20f;
     [SerializeField] private float attackCooldown = 1.5f;
     [SerializeField] private float rotationSpeed = 10f;
-    [SerializeField] private float moveSpeed = 3.5f;
 
     [Header("Debug")]
     [SerializeField] private bool showAIDebugLogs = true;
 
-    // Estado
     public enum AIState { Idle, Chase, Attack, Dead, Return }
     private AIState currentState = AIState.Idle;
     private float lastAttackTime;
     private bool aiEnabled = true;
 
-    // Referencias
     private EnemyStats stats;
     private Animator anim;
+    private NavMeshAgent agent;
     private Transform target;
     private Vector3 spawnPosition;
-    private CharacterController charController;
 
     void Awake()
     {
         stats = GetComponent<EnemyStats>();
+        agent = GetComponent<NavMeshAgent>();
+        
+        // Procura Animator no próprio objeto OU nos filhos
         anim = GetComponent<Animator>();
-        charController = GetComponent<CharacterController>();
+        if (anim == null)
+            anim = GetComponentInChildren<Animator>();
+        
         spawnPosition = transform.position;
     }
 
     void Start()
     {
+        if (agent != null)
+        {
+            agent.speed = stats != null ? stats.MoveSpeed : 3.5f;
+            agent.stoppingDistance = attackRange;
+            agent.acceleration = 8f;
+            agent.angularSpeed = rotationSpeed * 36f;
+            agent.autoBraking = true;
+        }
+
         if (showAIDebugLogs)
             Debug.Log("[EnemyAI] " + gameObject.name + " (netId=" + netId + ") iniciado | spawn=" + spawnPosition + " | aggroRange=" + aggroRange + " | attackRange=" + attackRange);
     }
@@ -51,28 +63,19 @@ public class EnemyAI : NetworkBehaviour
         if (stats.IsDead)
         {
             if (currentState != AIState.Dead)
-            {
-                if (showAIDebugLogs) Debug.Log("[EnemyAI] " + gameObject.name + " mudando para estado DEAD");
                 ChangeState(AIState.Dead);
-            }
             return;
         }
 
         switch (currentState)
         {
-            case AIState.Idle:
-                UpdateIdle();
-                break;
-            case AIState.Chase:
-                UpdateChase();
-                break;
-            case AIState.Attack:
-                UpdateAttack();
-                break;
-            case AIState.Return:
-                UpdateReturn();
-                break;
+            case AIState.Idle: UpdateIdle(); break;
+            case AIState.Chase: UpdateChase(); break;
+            case AIState.Attack: UpdateAttack(); break;
+            case AIState.Return: UpdateReturn(); break;
         }
+
+        UpdateAnimation();
     }
 
     #region State Machine
@@ -89,27 +92,22 @@ public class EnemyAI : NetworkBehaviour
         switch (newState)
         {
             case AIState.Idle:
-                anim.SetBool("IsMoving", false);
-                anim.SetBool("IsAttacking", false);
+                SafeResetPath();
                 target = null;
                 break;
             case AIState.Chase:
-                anim.SetBool("IsMoving", true);
-                anim.SetBool("IsAttacking", false);
                 break;
             case AIState.Attack:
-                anim.SetBool("IsMoving", false);
-                anim.SetBool("IsAttacking", true);
+                SafeResetPath();
                 break;
             case AIState.Return:
-                anim.SetBool("IsMoving", true);
-                anim.SetBool("IsAttacking", false);
                 target = null;
+                if (agent != null && agent.isActiveAndEnabled)
+                    agent.SetDestination(spawnPosition);
                 break;
             case AIState.Dead:
-                anim.SetBool("IsMoving", false);
-                anim.SetBool("IsAttacking", false);
-                anim.SetTrigger("Die");
+                SafeResetPath();
+                if (agent != null) agent.enabled = false;
                 break;
         }
     }
@@ -120,17 +118,19 @@ public class EnemyAI : NetworkBehaviour
 
     private void UpdateIdle()
     {
-        // Procura por jogadores dentro do aggroRange
         Collider[] hits = Physics.OverlapSphere(transform.position, aggroRange, LayerMask.GetMask("Player"));
 
         if (showAIDebugLogs && hits.Length > 0)
-            Debug.Log("[EnemyAI] UpdateIdle: " + hits.Length + " player(s) detectado(s) no aggroRange");
+            Debug.Log("[EnemyAI] UpdateIdle: " + hits.Length + " player(s) detectado(s)");
 
         Transform closestPlayer = null;
         float closestDist = float.MaxValue;
 
         foreach (var hit in hits)
         {
+            var netId = hit.GetComponent<NetworkIdentity>();
+            if (netId == null) continue;
+
             PlayerStats playerStats = hit.GetComponent<PlayerStats>();
             if (playerStats == null) continue;
             if (playerStats.IsDead) continue;
@@ -165,7 +165,6 @@ public class EnemyAI : NetworkBehaviour
     {
         if (target == null)
         {
-            if (showAIDebugLogs) Debug.Log("[EnemyAI] UpdateChase: alvo perdido, voltando para IDLE");
             ChangeState(AIState.Idle);
             return;
         }
@@ -173,7 +172,6 @@ public class EnemyAI : NetworkBehaviour
         PlayerStats playerStats = target.GetComponent<PlayerStats>();
         if (playerStats == null || playerStats.IsDead)
         {
-            if (showAIDebugLogs) Debug.Log("[EnemyAI] UpdateChase: alvo " + target.name + " morto ou invalido, voltando para IDLE");
             ChangeState(AIState.Idle);
             return;
         }
@@ -181,26 +179,24 @@ public class EnemyAI : NetworkBehaviour
         float distToTarget = Vector3.Distance(transform.position, target.position);
         float distToSpawn = Vector3.Distance(transform.position, spawnPosition);
 
-        // Se saiu muito longe do spawn, volta
         if (distToSpawn > stopChaseRange)
         {
             if (showAIDebugLogs)
-                Debug.Log("[EnemyAI] UpdateChase: distancia do spawn (" + distToSpawn.ToString("F2") + "m) > stopChaseRange (" + stopChaseRange + "), RETORNANDO");
+                Debug.Log("[EnemyAI] UpdateChase: distancia do spawn (" + distToSpawn.ToString("F2") + "m) > stopChaseRange, RETORNANDO");
             ChangeState(AIState.Return);
             return;
         }
 
-        // Se chegou na range de ataque
         if (distToTarget <= attackRange)
         {
-            if (showAIDebugLogs)
-                Debug.Log("[EnemyAI] UpdateChase: alvo na range de ataque (" + distToTarget.ToString("F2") + "m <= " + attackRange + "m), mudando para ATTACK");
             ChangeState(AIState.Attack);
             return;
         }
 
-        // Move em direcao ao alvo
-        MoveTowards(target.position);
+        if (agent != null && agent.isActiveAndEnabled)
+        {
+            agent.SetDestination(target.position);
+        }
     }
 
     #endregion
@@ -211,7 +207,6 @@ public class EnemyAI : NetworkBehaviour
     {
         if (target == null)
         {
-            if (showAIDebugLogs) Debug.Log("[EnemyAI] UpdateAttack: alvo perdido");
             ChangeState(AIState.Idle);
             return;
         }
@@ -219,27 +214,21 @@ public class EnemyAI : NetworkBehaviour
         PlayerStats playerStats = target.GetComponent<PlayerStats>();
         if (playerStats == null || playerStats.IsDead)
         {
-            if (showAIDebugLogs) Debug.Log("[EnemyAI] UpdateAttack: alvo " + target.name + " morto, indo para IDLE");
             ChangeState(AIState.Idle);
             return;
         }
 
         float distToTarget = Vector3.Distance(transform.position, target.position);
 
-        // Se o alvo saiu da range de ataque, volta a perseguir
         if (distToTarget > attackRange * 1.2f)
         {
-            if (showAIDebugLogs)
-                Debug.Log("[EnemyAI] UpdateAttack: alvo saiu da range (" + distToTarget.ToString("F2") + "m), voltando para CHASE");
             ChangeState(AIState.Chase);
             return;
         }
 
-        // Olha para o alvo
         LookAt(target.position);
 
-        // Verifica cooldown de ataque
-        float cooldownTime = attackCooldown / stats.AttackSpeed;
+        float cooldownTime = attackCooldown / Mathf.Max(stats.AttackSpeed, 0.1f);
         if (Time.time >= lastAttackTime + cooldownTime)
         {
             lastAttackTime = Time.time;
@@ -247,33 +236,21 @@ public class EnemyAI : NetworkBehaviour
         }
     }
 
-    /// <summary>
-    /// Executa o ataque no alvo. Chama EnemyStats.PerformAttack que aplica dano real.
-    /// </summary>
     [Server]
     private void PerformAttack()
     {
+        if (target == null) return;
+
         if (showAIDebugLogs)
-        {
-            Debug.Log("[EnemyAI] ===============================================");
-            Debug.Log("[EnemyAI] PerformAttack() chamado");
-            Debug.Log("[EnemyAI]   Mob: " + gameObject.name);
-            Debug.Log("[EnemyAI]   Alvo: " + (target != null ? target.name : "NULL"));
-            Debug.Log("[EnemyAI]   Distancia: " + Vector3.Distance(transform.position, target.position).ToString("F2") + "m");
-            Debug.Log("[EnemyAI] ===============================================");
-        }
+            Debug.Log("[EnemyAI] PerformAttack() | Mob: " + gameObject.name + " | Alvo: " + target.name);
 
-        if (target == null)
-        {
-            Debug.LogWarning("[EnemyAI] PerformAttack CANCELADO: target eh null");
-            return;
-        }
+        // [CORREÇÃO] Agora apenas dispara a animação.
+        // O dano será aplicado pelo Animation Event quando a animação chegar no frame de impacto.
+        if (anim != null)
+            anim.SetTrigger("Attack");
 
-        // Toca animacao de ataque
-        anim.SetTrigger("Attack");
-
-        // Delega o dano para EnemyStats
-        stats.PerformAttack(target.gameObject);
+        // [CORREÇÃO] REMOVIDO: stats.PerformAttack(target.gameObject);
+        // Antes causava ataque duplo porque o dano era aplicado aqui E no Animation Event.
     }
 
     #endregion
@@ -286,36 +263,30 @@ public class EnemyAI : NetworkBehaviour
 
         if (distToSpawn < 1f)
         {
-            if (showAIDebugLogs) Debug.Log("[EnemyAI] UpdateReturn: chegou no spawn, indo para IDLE");
+            if (showAIDebugLogs) Debug.Log("[EnemyAI] UpdateReturn: chegou no spawn");
             ChangeState(AIState.Idle);
             return;
         }
 
-        MoveTowards(spawnPosition);
+        if (agent != null && agent.isActiveAndEnabled && !agent.hasPath)
+        {
+            agent.SetDestination(spawnPosition);
+        }
     }
 
     #endregion
 
-    #region Movement Helpers
+    #region Animation & Movement
 
-    private void MoveTowards(Vector3 destination)
+    private void UpdateAnimation()
     {
-        Vector3 dir = (destination - transform.position).normalized;
-        dir.y = 0;
-
-        if (dir.sqrMagnitude > 0.001f)
-        {
-            LookAt(destination);
-
-            if (charController != null && charController.enabled)
-            {
-                charController.Move(dir * moveSpeed * Time.deltaTime);
-            }
-            else
-            {
-                transform.position += dir * moveSpeed * Time.deltaTime;
-            }
-        }
+        if (anim == null) return;
+        if (anim.runtimeAnimatorController == null) return;  // sem controller atribuído
+        
+        bool isMoving = agent != null && agent.isActiveAndEnabled && 
+                        agent.hasPath && agent.remainingDistance > agent.stoppingDistance + 0.1f;
+        anim.SetBool("IsMoving", isMoving);
+        anim.SetBool("IsAttacking", currentState == AIState.Attack);
     }
 
     private void LookAt(Vector3 targetPos)
@@ -329,6 +300,14 @@ public class EnemyAI : NetworkBehaviour
         }
     }
 
+    private void SafeResetPath()
+    {
+        if (agent != null && agent.isActiveAndEnabled)
+        {
+            agent.ResetPath();
+        }
+    }
+
     #endregion
 
     #region Public API
@@ -338,21 +317,18 @@ public class EnemyAI : NetworkBehaviour
         aiEnabled = enabled;
         if (!enabled)
         {
-            anim.SetBool("IsMoving", false);
-            anim.SetBool("IsAttacking", false);
+            SafeResetPath();
         }
-        if (showAIDebugLogs) Debug.Log("[EnemyAI] SetEnabled=" + enabled);
     }
 
     public void SetTarget(Transform newTarget)
     {
         target = newTarget;
         if (target != null && currentState != AIState.Chase && currentState != AIState.Attack)
-        {
             ChangeState(AIState.Chase);
-        }
     }
 
+    // [CORREÇÃO] Propriedade pública para o EnemyAnimationEvents acessar o alvo atual
     public Transform CurrentTarget => target;
     public AIState State => currentState;
 
@@ -362,23 +338,18 @@ public class EnemyAI : NetworkBehaviour
 
     void OnDrawGizmosSelected()
     {
-        // Aggro range
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireSphere(transform.position, aggroRange);
 
-        // Attack range
         Gizmos.color = Color.red;
         Gizmos.DrawWireSphere(transform.position, attackRange);
 
-        // Stop chase range
         Gizmos.color = Color.blue;
         Gizmos.DrawWireSphere(spawnPosition, stopChaseRange);
 
-        // Spawn point
         Gizmos.color = Color.green;
         Gizmos.DrawSphere(spawnPosition, 0.3f);
 
-        // Linha para alvo
         if (target != null)
         {
             Gizmos.color = Color.magenta;

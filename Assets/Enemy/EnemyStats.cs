@@ -1,43 +1,77 @@
 using UnityEngine;
 using Mirror;
+using UnityEngine.AI;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 
-[RequireComponent(typeof(EnemyAI))]
 public class EnemyStats : NetworkBehaviour, ICharacterStats
 {
     [Header("Base Stats")]
-    [SyncVar] private int _health;
-    [SyncVar] private int _maxHealth;
-    [SyncVar] private int _mana;
-    [SyncVar] private int _maxMana;
-    [SyncVar] private int _stamina;
-    [SyncVar] private int _maxStamina;
-
-    [SyncVar] private int _strength;
-    [SyncVar] private int _agility;
-    [SyncVar] private int _constitution;
-    [SyncVar] private int _spirit;
-    [SyncVar] private int _accuracy;
-    [SyncVar] private int _luck;
-
-    [SyncVar] private int _attack;
-    [SyncVar] private int _defense;
-    [SyncVar] private int _magicAttack;
-    [SyncVar] private int _magicDefense;
-    [SyncVar] private float _attackSpeed = 1f;
-    [SyncVar] private float _moveSpeed = 3.5f;
-
-    [SyncVar] private int _level = 1;
-    [SyncVar] private int _experienceReward = 10;
-    [SyncVar] private int _goldReward = 5;
+    [SerializeField] private int _health = 100;
+    [SerializeField] private int _maxHealth = 100;
+    [SerializeField] private int _mana = 50;
+    [SerializeField] private int _maxMana = 50;
+    [SerializeField] private int _stamina = 100;
+    [SerializeField] private int _maxStamina = 100;
+    [SerializeField] private int _strength = 10;
+    [SerializeField] private int _agility = 5;
+    [SerializeField] private int _constitution = 10;
+    [SerializeField] private int _spirit = 5;
+    [SerializeField] private int _accuracy = 10;
+    [SerializeField] private int _luck = 5;
+    [SerializeField] private int _attack = 10;
+    [SerializeField] private int _defense = 5;
+    [SerializeField] private int _magicAttack = 5;
+    [SerializeField] private int _magicDefense = 5;
+    [SerializeField] private float _attackSpeed = 1f;
+    [SerializeField] private float _moveSpeed = 3.5f;
+    [SerializeField] private int _level = 1;
 
     [Header("Config")]
-    [SerializeField] private string enemyName = "Mob";
+    [SerializeField] private string _enemyName = "Enemy";
+    [SerializeField] private int _experienceReward = 10;
+    [SerializeField] private int _goldReward = 5;
+    [SerializeField] private float _respawnTime = 10f;
+
+    [Header("Death Animation")]
+    [Tooltip("Nome exato do estado de morte no Animator (ex: Morrendo, Die, Death)")]
+    [SerializeField] private string deathStateName = "Morrendo";
+    [Tooltip("Duração do clip 'Morrendo' em segundos")]
+    [SerializeField] private float deathAnimationDuration = 1.02f;
+    [Tooltip("Tempo extra no estado 'morto' antes de sumir (pose no chão)")]
+    [SerializeField] private float deathPoseDuration = 1.5f;
+
+    [Header("Debug")]
     [SerializeField] private bool showDebugLogs = true;
 
-    // Properties
-    public int Health => _health;
+    // SyncVars
+    [SyncVar(hook = nameof(OnHealthSyncChanged))] private int _syncHealth;
+    [SyncVar] private bool _isDead;
+
+    // Estado local
+    private bool _initialized;
+    private Vector3 _spawnPosition;
+    private Quaternion _spawnRotation;
+    private List<StatModifier> _modifiers = new List<StatModifier>();
+
+    // Referencias
+    private EnemyAI _enemyAI;
+    private Animator _animator;
+    private Collider _collider;
+    private NavMeshAgent _agent;
+
+    // Eventos
+    public event Action OnHealthUpdated;
+    public event Action OnManaUpdated;
+    public event Action OnStaminaUpdated;
+    public event Action OnDeath;
+    public event Action OnRevive;
+    public event Action OnStatsChanged;
+
+    #region Propriedades ICharacterStats
+
+    public int Health => _syncHealth;
     public int MaxHealth => _maxHealth;
     public int Mana => _mana;
     public int MaxMana => _maxMana;
@@ -56,21 +90,27 @@ public class EnemyStats : NetworkBehaviour, ICharacterStats
     public float AttackSpeed => _attackSpeed;
     public float MoveSpeed => _moveSpeed;
     public int Level => _level;
-    public bool IsDead => _health <= 0;
+    public bool IsDead => _isDead;
+    public string EnemyName => _enemyName;
     public int ExperienceReward => _experienceReward;
     public int GoldReward => _goldReward;
-    public string EnemyName => enemyName;
 
-    // Events
-    public event Action OnHealthUpdated;
-    public event Action OnManaUpdated;
-    public event Action OnStaminaUpdated;
-    public event Action OnDeath;
-    public event Action OnRevive;
-    public event Action OnStatsChanged;
+    #endregion
 
-    // Modifiers
-    private List<StatModifier> activeModifiers = new List<StatModifier>();
+    #region Unity Lifecycle
+
+    void Awake()
+    {
+        _enemyAI = GetComponent<EnemyAI>();
+        _animator = GetComponentInChildren<Animator>();
+        _collider = GetComponent<Collider>();
+        _agent = GetComponent<NavMeshAgent>();
+        _spawnPosition = transform.position;
+        _spawnRotation = transform.rotation;
+
+        if (_animator == null)
+            Debug.LogError($"[EnemyStats] Animator NÃO ENCONTRADO em {gameObject.name}! Certifique-se de que o Animator está em um filho.");
+    }
 
     void Start()
     {
@@ -80,76 +120,54 @@ public class EnemyStats : NetworkBehaviour, ICharacterStats
         }
     }
 
+    #endregion
+
+    #region Initialization
+
     [Server]
     public void InitializeStats()
     {
-        _maxHealth = 100 + (_constitution * 10) + (_level * 5);
-        _maxMana = 50 + (_spirit * 8);
-        _maxStamina = 100 + (_constitution * 5);
+        if (_initialized) return;
 
-        _attack = (_strength * 2) + _agility;
-        _defense = _constitution + (_agility / 2);
-        _magicAttack = (_spirit * 2);
-        _magicDefense = _spirit + (_constitution / 2);
-
-        _health = _maxHealth;
+        _syncHealth = _maxHealth;
         _mana = _maxMana;
         _stamina = _maxStamina;
+        _isDead = false;
+        _initialized = true;
 
         if (showDebugLogs)
-            Debug.Log("[EnemyStats] " + enemyName + " (netId=" + netId + ") inicializado | HP=" + _health + "/" + _maxHealth + " | ATK=" + _attack + " | DEF=" + _defense);
+            Debug.Log("[EnemyStats] " + _enemyName + " (netId=" + netId + ") inicializado | HP=" + _syncHealth + "/" + _maxHealth + " | ATK=" + _attack + " | DEF=" + _defense);
     }
 
-    [Server]
-    public void SetBaseStats(int str, int agi, int con, int spr, int acc, int luck, int lvl)
-    {
-        _strength = str;
-        _agility = agi;
-        _constitution = con;
-        _spirit = spr;
-        _accuracy = acc;
-        _luck = luck;
-        _level = lvl;
-        InitializeStats();
-    }
+    #endregion
 
-    #region ICharacterStats Implementation
+    #region Combat - ICharacterStats
 
     [Server]
-    public void TakeDamage(int damage, uint attackerId, DamageType damageType = DamageType.Physical)
+    public void TakeDamage(int damage, uint attackerId, DamageType damageType)
     {
+        if (_isDead) return;
+
         if (showDebugLogs)
         {
             Debug.Log("[EnemyStats] ===============================================");
-            Debug.Log("[EnemyStats] TakeDamage CHAMADO em " + enemyName + " (netId=" + netId + ")");
+            Debug.Log("[EnemyStats] TakeDamage CHAMADO em " + _enemyName + " (netId=" + netId + ")");
             Debug.Log("[EnemyStats]   -> dmg=" + damage + " | attackerId=" + attackerId + " | damageType=" + damageType);
-            Debug.Log("[EnemyStats]   -> isDead=" + IsDead + " | HP antes=" + _health + "/" + _maxHealth);
+            Debug.Log("[EnemyStats]   -> isDead=" + _isDead + " | HP antes=" + _syncHealth + "/" + _maxHealth);
         }
 
-        if (IsDead)
-        {
-            if (showDebugLogs) Debug.Log("[EnemyStats] TakeDamage IGNORADO: " + enemyName + " ja esta morto");
-            return;
-        }
-
-        int finalDamage = damage;
-        if (damageType == DamageType.Physical)
-            finalDamage = Mathf.Max(1, damage - Defense);
-        else if (damageType == DamageType.Magical)
-            finalDamage = Mathf.Max(1, damage - MagicDefense);
-
-        _health = Mathf.Max(0, _health - finalDamage);
+        int finalDamage = Mathf.Max(1, damage - _defense);
+        _syncHealth = Mathf.Max(0, _syncHealth - finalDamage);
 
         if (showDebugLogs)
-            Debug.Log("[EnemyStats] " + enemyName + " HP depois=" + _health + " | danoFinal=" + finalDamage);
+            Debug.Log("[EnemyStats] " + _enemyName + " HP depois=" + _syncHealth + " | danoFinal=" + finalDamage);
 
         RpcOnDamageTaken(finalDamage, attackerId);
-        OnHealthUpdated?.Invoke();
 
-        if (_health <= 0)
+        if (_syncHealth <= 0)
         {
             if (showDebugLogs)
-                Debug.Log("[EnemyStats] " + enemyName + " MORREU! killerId=" + attackerId);
+                Debug.Log("[EnemyStats] " + _enemyName + " MORREU! killerId=" + attackerId);
             Die(attackerId);
         }
     }
@@ -157,201 +175,331 @@ public class EnemyStats : NetworkBehaviour, ICharacterStats
     [Server]
     public void TakeTrueDamage(int damage, uint attackerId)
     {
-        if (showDebugLogs)
-            Debug.Log("[EnemyStats] TakeTrueDamage em " + enemyName + " | dmg=" + damage);
-        if (IsDead) return;
-        _health = Mathf.Max(0, _health - damage);
+        if (_isDead) return;
+
+        _syncHealth = Mathf.Max(0, _syncHealth - damage);
         RpcOnDamageTaken(damage, attackerId);
-        OnHealthUpdated?.Invoke();
-        if (_health <= 0) Die(attackerId);
+
+        if (_syncHealth <= 0)
+            Die(attackerId);
     }
 
     [Server]
     public void Heal(int amount)
     {
-        if (IsDead) return;
-        _health = Mathf.Min(_maxHealth, _health + amount);
+        if (_isDead) return;
+        _syncHealth = Mathf.Min(_maxHealth, _syncHealth + amount);
         OnHealthUpdated?.Invoke();
     }
 
     [Server]
     public void RestoreMana(int amount)
     {
-        _mana = Mathf.Clamp(_mana + amount, 0, _maxMana);
+        _mana = Mathf.Min(_maxMana, _mana + amount);
         OnManaUpdated?.Invoke();
     }
 
     [Server]
     public void RestoreStamina(int amount)
     {
-        _stamina = Mathf.Clamp(_stamina + amount, 0, _maxStamina);
+        _stamina = Mathf.Min(_maxStamina, _stamina + amount);
         OnStaminaUpdated?.Invoke();
     }
 
     [Server]
-    public void AddModifier(StatModifier modifier)
-    {
-        activeModifiers.Add(modifier);
-        RecalculateStats();
-    }
-
-    [Server]
-    public void RemoveModifier(StatModifier modifier)
-    {
-        activeModifiers.Remove(modifier);
-        RecalculateStats();
-    }
-
-    [Server]
-    public void ClearModifiers()
-    {
-        activeModifiers.Clear();
-        RecalculateStats();
-    }
-
-    #endregion
-
-    #region Attack
-
-    /// <summary>
-    /// Chamado pelo EnemyAI quando o mob chega na range de ataque.
-    /// Aplica dano REAL no alvo (player) via ICharacterStats.TakeDamage.
-    /// </summary>
-    [Server]
     public void PerformAttack(GameObject target)
     {
+        if (_isDead) return;
+        if (target == null) return;
+
         if (showDebugLogs)
         {
             Debug.Log("[EnemyStats] ===============================================");
             Debug.Log("[EnemyStats] PerformAttack() chamado");
-            Debug.Log("[EnemyStats]   Atacante: " + gameObject.name);
-            Debug.Log("[EnemyStats]   Alvo: " + (target != null ? target.name : "NULL"));
+            Debug.Log("[EnemyStats]   Atacante: " + _enemyName);
+            Debug.Log("[EnemyStats]   Alvo: " + target.name);
             Debug.Log("[EnemyStats] ===============================================");
         }
 
-        if (IsDead)
-        {
-            Debug.LogWarning("[EnemyStats] PerformAttack CANCELADO: " + enemyName + " esta morto");
-            return;
-        }
-
-        if (target == null)
-        {
-            Debug.LogWarning("[EnemyStats] PerformAttack CANCELADO: target eh NULL");
-            return;
-        }
-
-        // Tenta pegar ICharacterStats no alvo (PlayerStats ou outro mob)
         ICharacterStats targetStats = target.GetComponent<ICharacterStats>();
         if (targetStats == null)
         {
-            Debug.LogError("[EnemyStats] PerformAttack FALHOU: " + target.name + " nao tem ICharacterStats!");
+            Debug.LogWarning("[EnemyStats] Alvo " + target.name + " nao implementa ICharacterStats");
             return;
         }
 
         if (targetStats.IsDead)
         {
-            Debug.Log("[EnemyStats] PerformAttack CANCELADO: alvo " + target.name + " ja esta morto");
+            Debug.Log("[EnemyStats] Alvo " + target.name + " ja esta morto");
             return;
         }
 
-        // Calcula dano do mob
         int damage = CalculateDamage();
-        uint attackerNetId = netId;
+        targetStats.TakeDamage(damage, netId, DamageType.Physical);
 
         if (showDebugLogs)
-            Debug.Log("[EnemyStats] " + enemyName + " causando " + damage + " de dano em " + target.name + " (netId=" + target.GetComponent<NetworkIdentity>()?.netId + ")");
+            Debug.Log("[EnemyStats] " + _enemyName + " causando " + damage + " de dano em " + target.name + " (netId=" + target.GetComponent<NetworkIdentity>()?.netId + ")");
 
-        // APLICA DANO REAL NO ALVO
-        targetStats.TakeDamage(damage, attackerNetId, DamageType.Physical);
-
-        // Notifica clientes para tocar animacao de hit no alvo
-        NetworkIdentity targetNetId = target.GetComponent<NetworkIdentity>();
-        if (targetNetId != null)
-        {
-            RpcOnAttackLanded(targetNetId.netId, damage);
-        }
+        RpcOnAttackLanded(target.GetComponent<NetworkIdentity>()?.netId ?? 0, damage);
     }
 
     [Server]
     private int CalculateDamage()
     {
-        int baseDamage = Attack;
         float variance = UnityEngine.Random.Range(0.9f, 1.1f);
-        int finalDamage = Mathf.RoundToInt(baseDamage * variance);
-        return Mathf.Max(1, finalDamage);
+        return Mathf.Max(1, Mathf.RoundToInt(_attack * variance));
+    }
+
+    #endregion
+
+    #region Modifiers - ICharacterStats
+
+    [Server]
+    public void AddModifier(StatModifier modifier)
+    {
+        _modifiers.Add(modifier);
+        ApplyModifiers();
+        OnStatsChanged?.Invoke();
+    }
+
+    [Server]
+    public void RemoveModifier(StatModifier modifier)
+    {
+        _modifiers.Remove(modifier);
+        ApplyModifiers();
+        OnStatsChanged?.Invoke();
+    }
+
+    [Server]
+    public void ClearModifiers()
+    {
+        _modifiers.Clear();
+        ApplyModifiers();
+        OnStatsChanged?.Invoke();
+    }
+
+    [Server]
+    private void ApplyModifiers()
+    {
+        // Reset para valores base
+    }
+
+    #endregion
+
+    #region Death & Respawn
+
+    [Server]
+    private void Die(uint killerId)
+    {
+        if (_isDead) return;
+        _isDead = true;
+
+        if (showDebugLogs)
+            Debug.Log("[EnemyStats] Die() chamado em " + _enemyName + " | killerId=" + killerId);
+
+        // Recompensas
+        if (killerId != 0 && NetworkServer.spawned.TryGetValue(killerId, out var killer))
+        {
+            var killerStats = killer.GetComponent<PlayerStats>();
+            if (killerStats != null)
+            {
+                killerStats.AddExperience(_experienceReward);
+                killerStats.AddGold(_goldReward);
+                if (showDebugLogs)
+                    Debug.Log("[EnemyStats] Recompensa: " + _experienceReward + " XP, " + _goldReward + " Gold para " + killer.name);
+            }
+        }
+
+        // Desativa IA e colisão imediatamente (servidor)
+        if (_collider != null) _collider.enabled = false;
+        if (_enemyAI != null) _enemyAI.SetEnabled(false);
+        if (_agent != null && _agent.isActiveAndEnabled) _agent.enabled = false;
+
+        // Envia RPC de morte para TODOS os clientes tocarem a animação
+        RpcOnDeath();
+
+        OnDeath?.Invoke();
+
+        // Inicia sequência de morte (aguarda animação + pose)
+        StartCoroutine(DeathSequence());
+    }
+
+    [Server]
+    private IEnumerator DeathSequence()
+    {
+        float totalWait = deathAnimationDuration + deathPoseDuration;
+        
+        if (showDebugLogs)
+            Debug.Log("[EnemyStats] DeathSequence: aguardando " + totalWait + "s (animação: " + deathAnimationDuration + "s + pose: " + deathPoseDuration + "s)");
+
+        yield return new WaitForSeconds(totalWait);
+
+        // Esconde o inimigo nos clientes (renderers)
+        RpcSetVisible(false);
+
+        // Aguarda respawn
+        yield return new WaitForSeconds(_respawnTime);
+        Respawn();
+    }
+
+    [Server]
+    private void Respawn()
+    {
+        _syncHealth = _maxHealth;
+        _mana = _maxMana;
+        _stamina = _maxStamina;
+        _isDead = false;
+
+        transform.position = _spawnPosition;
+        transform.rotation = _spawnRotation;
+
+        // Reativa componentes
+        if (_collider != null) _collider.enabled = true;
+        if (_enemyAI != null) _enemyAI.SetEnabled(true);
+        if (_agent != null) _agent.enabled = true;
+
+        // Reativa visibilidade nos clientes
+        RpcSetVisible(true);
+        
+        // Reseta Animator nos clientes
+        RpcResetAnimator();
+
+        if (showDebugLogs)
+            Debug.Log("[EnemyStats] " + _enemyName + " respawnou em " + _spawnPosition);
+    }
+
+    #endregion
+
+    #region RPCs
+
+    [ClientRpc]
+    private void RpcOnDamageTaken(int damage, uint attackerId)
+    {
+        OnHealthUpdated?.Invoke();
     }
 
     [ClientRpc]
     private void RpcOnAttackLanded(uint targetNetId, int damage)
     {
-        // Client-side: pode tocar som, particula, etc.
         if (showDebugLogs)
             Debug.Log("[EnemyStats] RpcOnAttackLanded: dano " + damage + " no netId=" + targetNetId);
     }
 
-    #endregion
-
-    #region Death
-
-    [Server]
-    private void Die(uint killerId)
+    [ClientRpc]
+    private void RpcSetVisible(bool visible)
     {
-        Debug.Log("[EnemyStats] Die() chamado em " + enemyName + " | killerId=" + killerId);
+        if (showDebugLogs)
+            Debug.Log("[EnemyStats] RpcSetVisible(" + visible + ") em " + gameObject.name);
 
-        OnDeath?.Invoke();
-        RpcOnDeath();
-
-        // Recompensa XP/Gold para o killer
-        if (killerId != 0 && NetworkServer.spawned.TryGetValue(killerId, out NetworkIdentity killerIdentity))
+        Renderer[] renderers = GetComponentsInChildren<Renderer>(true);
+        foreach (var rend in renderers)
         {
-            PlayerStats killerStats = killerIdentity.GetComponent<PlayerStats>();
-            if (killerStats != null)
+            rend.enabled = visible;
+        }
+
+        if (visible && !gameObject.activeSelf)
+        {
+            gameObject.SetActive(true);
+        }
+    }
+
+    /// <summary>
+    /// CORREÇÃO PRINCIPAL: Método reescrito para garantir que a animação de morte toque.
+    /// Tenta Trigger -> Bool -> CrossFade direto como fallback.
+    /// </summary>
+    [ClientRpc]
+private void RpcOnDeath()
+{
+    if (showDebugLogs)
+        Debug.Log($"[EnemyStats] RpcOnDeath em {gameObject.name}");
+
+    Animator anim = _animator ?? GetComponentInChildren<Animator>();
+    if (anim == null || anim.runtimeAnimatorController == null) return;
+
+    // 1. Para movimento e ataque
+    anim.SetBool("IsMoving", false);
+    anim.SetBool("IsAttacking", false);
+
+    // 2. Limpa APENAS triggers de combate (NÃO toca no "Die"!)
+    anim.ResetTrigger("Attack");
+    anim.ResetTrigger("Hit");
+
+    // 3. Dispara morte (apenas isso, nada mais)
+    anim.SetTrigger("Die");
+
+    if (showDebugLogs)
+        Debug.Log("[EnemyStats] Trigger 'Die' disparado");
+
+    // 4. Esconde UI
+    EnemyHealthBar healthBar = GetComponentInChildren<EnemyHealthBar>();
+    if (healthBar != null) healthBar.gameObject.SetActive(false);
+}
+
+    [ClientRpc]
+    private void RpcResetAnimator()
+    {
+        Animator anim = _animator ?? GetComponentInChildren<Animator>();
+        if (anim != null)
+        {
+            // Reseta bools
+            anim.SetBool("IsDead", false);
+            anim.SetBool("IsMoving", false);
+            anim.SetBool("IsAttacking", false);
+            
+            // Reseta triggers
+            anim.ResetTrigger("Die");
+            anim.ResetTrigger("Attack");
+            anim.ResetTrigger("Hit");
+            
+            // Volta para idle (ajuste "Parado1" se seu estado idle tiver outro nome)
+            int idleHash = Animator.StringToHash("Parado1");
+            if (anim.HasState(0, idleHash))
             {
-                killerStats.AddExperience(_experienceReward);
-                killerStats.AddGold(_goldReward);
-                Debug.Log("[EnemyStats] Recompensa: " + _experienceReward + " XP, " + _goldReward + " Gold para " + killerStats.CharacterName);
+                anim.Play("Parado1", 0, 0f);
             }
+            else
+            {
+                // Fallback para o estado default (entry)
+                anim.Play(0, 0, 0f);
+            }
+            
+            if (showDebugLogs)
+                Debug.Log("[EnemyStats] Animator resetado para respawn");
         }
-
-        // Despawn ou destruir apos delay
-        StartCoroutine(DespawnAfterDelay(5f));
     }
 
-    [ClientRpc]
-    private void RpcOnDeath()
+    /// <summary>
+    /// Helper: Verifica se o Animator tem um parâmetro com nome e tipo específicos.
+    /// </summary>
+    private bool HasAnimatorParameter(Animator animator, string paramName, AnimatorControllerParameterType type)
     {
-        Debug.Log("[EnemyStats] RpcOnDeath em " + enemyName);
-        GetComponent<Animator>()?.SetTrigger("Die");
-        GetComponent<EnemyAI>()?.SetEnabled(false);
-    }
-
-    [Server]
-    private System.Collections.IEnumerator DespawnAfterDelay(float delay)
-    {
-        yield return new WaitForSeconds(delay);
-        if (gameObject != null)
+        if (animator == null || animator.parameters == null) return false;
+        
+        foreach (var param in animator.parameters)
         {
-            Debug.Log("[EnemyStats] Destruindo " + enemyName + " apos " + delay + "s");
-            NetworkServer.Destroy(gameObject);
+            if (param.name == paramName && param.type == type)
+                return true;
         }
+        return false;
     }
 
     #endregion
 
-    #region Helpers
+    #region Hooks
 
-    [Server]
-    private void RecalculateStats()
+    private void OnHealthSyncChanged(int oldHealth, int newHealth)
     {
-        // Recalcula bonus de modifiers se necessario
-        OnStatsChanged?.Invoke();
+        OnHealthUpdated?.Invoke();
     }
 
-    [ClientRpc]
-    private void RpcOnDamageTaken(int damage, uint attackerId)
+    #endregion
+
+    #region Gizmos
+
+    void OnDrawGizmosSelected()
     {
-        DamagePopupManager.Instance?.ShowDamage(transform.position + Vector3.up * 2f, damage, false);
+        Gizmos.color = Color.red;
+        Gizmos.DrawWireSphere(transform.position, 0.5f);
     }
 
     #endregion

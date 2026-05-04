@@ -12,6 +12,8 @@ public class PlayerMovement : NetworkBehaviour
     [SerializeField] private float runSpeedMultiplier = 1.5f;
     [SerializeField] private float rotationSpeed = 360f;
     [SerializeField] private float stoppingDistance = 0.1f;
+    [SerializeField] private float arrivalTolerance = 0.2f;
+    [SerializeField] private float destinationSettleTime = 0.1f;
 
     [Header("Layers")]
     [SerializeField] private LayerMask groundLayer = 1;
@@ -33,18 +35,22 @@ public class PlayerMovement : NetworkBehaviour
     private bool isRunning;
     private Transform followTarget;
     private float followStopDistance;
+    private Vector3 targetPoint;
+    private bool hasPointDestination;
     private Action onReachTarget;
+    private bool arrivalTriggered;
+    private float nextArrivalCheckTime;
 
     public event Action OnMovementStarted;
     public event Action OnMovementStopped;
-    public event Action<Vector3> OnDestinationSet;
-#pragma warning disable CS0067 // reservado para highlights de objeto interativo sob o mouse
+    public event Action OnDestinationSet;
+#pragma warning disable CS0067
     public event Action OnInteractableFound;
 #pragma warning restore CS0067
 
-    public bool IsMoving => agent != null && agent.hasPath && agent.remainingDistance > agent.stoppingDistance + 0.1f;
-    public Vector3 CurrentDestination => agent.hasPath ? agent.destination : transform.position;
-    public float CurrentSpeed => agent.velocity.magnitude;
+    public bool IsMoving => agent != null && !agent.isStopped && (agent.pathPending || agent.remainingDistance > agent.stoppingDistance + arrivalTolerance);
+    public Vector3 CurrentDestination => agent != null && agent.hasPath ? agent.destination : transform.position;
+    public float CurrentSpeed => agent != null ? agent.velocity.magnitude : 0f;
 
     void Awake()
     {
@@ -56,7 +62,7 @@ public class PlayerMovement : NetworkBehaviour
 
         if (agent == null)
         {
-            Debug.LogError("[PlayerMovement] NavMeshAgent não encontrado!", this);
+            Debug.LogError("[PlayerMovement] NavMeshAgent nao encontrado!", this);
             enabled = false;
             return;
         }
@@ -80,14 +86,11 @@ public class PlayerMovement : NetworkBehaviour
     void Update()
     {
         if (!isLocalPlayer || !isMovementEnabled) return;
+
         HandleInput();
-        UpdateFollowTarget();
+        UpdateMoveGoal();
         UpdateAnimation();
     }
-
-    // ============================================
-    // INPUT HANDLING — MOUSE E TECLADO
-    // ============================================
 
     private void HandleInput()
     {
@@ -101,14 +104,12 @@ public class PlayerMovement : NetworkBehaviour
         isRunning = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
         agent.speed = isRunning ? baseMoveSpeed * runSpeedMultiplier : baseMoveSpeed;
 
-        // ===== BOTÃO ESQUERDO DO MOUSE =====
         if (Input.GetMouseButtonDown(0))
         {
             Ray ray = mainCamera.ScreenPointToRay(Input.mousePosition);
 
             if (Physics.Raycast(ray, out RaycastHit hit, Mathf.Infinity, clickableLayers))
             {
-                // ========== PRIORIDADE 1: INIMIGO ==========
                 if (TryGetEnemyFromCollider(hit.collider, out EnemyStats enemyStats))
                 {
                     combat?.Trace($"Raycast LMB inimigo col={hit.collider.name} root={enemyStats.gameObject.name}");
@@ -119,22 +120,20 @@ public class PlayerMovement : NetworkBehaviour
                         ?? enemyRoot.GetComponentInChildren<EnemySelection>();
                     selection?.SetSelected(true);
 
-                    combat?.SetTarget(enemyRoot);
+                    combat?.StartAutoAttack(enemyRoot);
                     return;
                 }
 
-                // ========== PRIORIDADE 2: PERSONAGEM (PvP) ==========
-                var pvpStats = hit.collider.GetComponent<ICharacterStats>()
-                    ?? hit.collider.GetComponentInParent<ICharacterStats>();
-                if (pvpStats != null &&
-                    !ReferenceEquals(pvpStats, this.stats) &&
-                    !pvpStats.IsDead)
+                var pvpStats = hit.collider.GetComponent<PlayerStats>()
+                    ?? hit.collider.GetComponentInParent<PlayerStats>();
+                if (pvpStats != null && !ReferenceEquals(pvpStats, stats) && !pvpStats.IsDead)
                 {
-                    combat?.SetTarget(((Component)pvpStats).transform);
+                    combat?.StartAutoAttack(((Component)pvpStats).transform);
                     return;
                 }
 
-                // ========== PRIORIDADE 3: NPC ==========
+                combat?.StopAutoAttack();
+
                 if (hit.collider.TryGetComponent(out IInteractable interactable))
                 {
                     float distance = Vector3.Distance(transform.position, hit.point);
@@ -150,7 +149,6 @@ public class PlayerMovement : NetworkBehaviour
                     return;
                 }
 
-                // ========== PRIORIDADE 4: ITEM NO CHÃO ==========
                 if (hit.collider.TryGetComponent(out WorldItem worldItem))
                 {
                     float distance = Vector3.Distance(transform.position, hit.point);
@@ -165,45 +163,16 @@ public class PlayerMovement : NetworkBehaviour
                     return;
                 }
 
-                // ========== PRIORIDADE 5: MOVER ==========
                 MoveToPoint(hit.point);
             }
             else
             {
-                combat?.Trace("Raycast LMB sem hit (layer clickable) ou distância 0.");
+                combat?.Trace("Raycast LMB sem hit (layer clickable) ou distancia 0.");
                 DeselectAllEnemies();
                 combat?.ClearTarget();
             }
         }
-
-        // ===== BOTÃO DIREITO DO MOUSE =====
-        if (Input.GetMouseButtonDown(1))
-        {
-            Ray ray = mainCamera.ScreenPointToRay(Input.mousePosition);
-            if (Physics.Raycast(ray, out RaycastHit hit, Mathf.Infinity, clickableLayers))
-            {
-                // Direito em inimigo → ataca imediatamente
-                if (TryGetEnemyFromCollider(hit.collider, out EnemyStats enemy))
-                {
-                    Transform root = enemy.transform;
-                    combat?.Trace($"Raycast RMB inimigo → SetTarget + TryAttackTarget ({root.name})");
-                    combat?.SetTarget(root);
-                    combat?.TryAttackTarget(root);
-                    return;
-                }
-                
-                // Direito em personagem atacável
-                var tgt = hit.collider.GetComponent<ICharacterStats>()
-                    ?? hit.collider.GetComponentInParent<ICharacterStats>();
-                if (tgt != null && !ReferenceEquals(tgt, this.stats) && !tgt.IsDead)
-                    combat?.SetTarget(((Component)tgt).transform);
-            }
-        }
     }
-
-    // ============================================
-    // MÉTODOS AUXILIARES
-    // ============================================
 
     private static bool TryGetEnemyFromCollider(Collider collider, out EnemyStats stats)
     {
@@ -215,51 +184,69 @@ public class PlayerMovement : NetworkBehaviour
 
     private void DeselectAllEnemies()
     {
-        // Usa FindObjectsOfType com tipo genérico para evitar erro de namespace
-        var allEnemies = UnityEngine.Object.FindObjectsByType<EnemySelection>(FindObjectsSortMode.None);
+        var allEnemies = UnityEngine.Object.FindObjectsByType<EnemySelection>(FindObjectsInactive.Include);
         foreach (var enemy in allEnemies)
-        {
             enemy.SetSelected(false);
-        }
     }
-
-    // ============================================
-    // MOVIMENTAÇÃO
-    // ============================================
 
     public void MoveToPoint(Vector3 destination, float stopDistance = 0.1f, Action onArrive = null)
     {
-        if (!NavMesh.SamplePosition(destination, out NavMeshHit navHit, 5f, NavMesh.AllAreas))
+        if (!TryGetNavMeshPoint(destination, out Vector3 navDestination))
         {
             Debug.LogWarning("[PlayerMovement] Destino fora do NavMesh!");
             return;
         }
 
         followTarget = null;
-        followStopDistance = 0;
+        hasPointDestination = true;
+        targetPoint = navDestination;
+        followStopDistance = stopDistance;
         onReachTarget = onArrive;
+        arrivalTriggered = false;
+        nextArrivalCheckTime = Time.time + destinationSettleTime;
 
+        agent.isStopped = false;
         agent.stoppingDistance = stopDistance;
-        agent.SetDestination(navHit.position);
+        agent.SetDestination(navDestination);
 
-        OnDestinationSet?.Invoke(navHit.position);
-        CmdSetDestination(navHit.position, stopDistance);
+        OnDestinationSet?.Invoke();
+        CmdSetDestination(navDestination, stopDistance);
     }
 
     public void FollowTarget(Transform target, float stopDistance, Action onArrive = null)
     {
+        if (target == null)
+        {
+            StopMovement();
+            return;
+        }
+
         followTarget = target;
+        hasPointDestination = false;
         followStopDistance = stopDistance;
         onReachTarget = onArrive;
+        arrivalTriggered = false;
+        nextArrivalCheckTime = Time.time + destinationSettleTime;
+        agent.isStopped = false;
         agent.stoppingDistance = stopDistance;
+
+        UpdateFollowDestination();
     }
 
     public void StopMovement()
     {
         followTarget = null;
+        hasPointDestination = false;
         onReachTarget = null;
-        agent.ResetPath();
-        agent.velocity = Vector3.zero;
+        arrivalTriggered = false;
+        nextArrivalCheckTime = 0f;
+
+        if (agent != null)
+        {
+            agent.isStopped = true;
+            agent.ResetPath();
+            agent.velocity = Vector3.zero;
+        }
 
         if (anim != null)
         {
@@ -278,10 +265,11 @@ public class PlayerMovement : NetworkBehaviour
     [Command]
     private void CmdSetDestination(Vector3 destination, float stopDistance)
     {
-        if (NavMesh.SamplePosition(destination, out NavMeshHit navHit, 5f, NavMesh.AllAreas))
+        if (TryGetNavMeshPoint(destination, out Vector3 navDestination))
         {
+            agent.isStopped = false;
             agent.stoppingDistance = stopDistance;
-            agent.SetDestination(navHit.position);
+            agent.SetDestination(navDestination);
         }
     }
 
@@ -292,36 +280,94 @@ public class PlayerMovement : NetworkBehaviour
             agent.speed = isRunning ? baseMoveSpeed * runSpeedMultiplier : baseMoveSpeed;
     }
 
-    private void UpdateFollowTarget()
+    private void UpdateMoveGoal()
     {
+        if (Time.time < nextArrivalCheckTime)
+            return;
+
         if (followTarget != null)
         {
-            if (followTarget == null)
+            if (!followTarget.gameObject.activeInHierarchy)
             {
-                followTarget = null;
+                StopMovement();
                 return;
             }
 
             float distance = Vector3.Distance(transform.position, followTarget.position);
-            if (distance > followStopDistance + 0.5f)
+            if (distance <= followStopDistance + arrivalTolerance)
             {
-                Vector3 raw = followTarget.position;
-                if (NavMesh.SamplePosition(raw, out NavMeshHit hit, 5f, NavMesh.AllAreas))
-                    agent.SetDestination(hit.position);
-                else
-                {
-                    Debug.LogWarning($"[PlayerMovement] FollowTarget: posição {raw} sem NavMesh válido até 5m — SetDestination pode falhar até Bake.", this);
-                    agent.SetDestination(raw);
-                }
+                CompleteArrival();
+                return;
             }
-            else
-            {
-                agent.ResetPath();
-                onReachTarget?.Invoke();
-                onReachTarget = null;
-                followTarget = null;
-            }
+
+            UpdateFollowDestination();
+            return;
         }
+
+        if (!hasPointDestination)
+            return;
+
+        float pointDistance = Vector3.Distance(transform.position, targetPoint);
+        if (pointDistance <= followStopDistance + arrivalTolerance)
+            CompleteArrival();
+    }
+
+    private void UpdateFollowDestination()
+    {
+        if (followTarget == null)
+            return;
+
+        Vector3 desiredPosition = GetApproachPosition(followTarget);
+        if (!TryGetNavMeshPoint(desiredPosition, out Vector3 navDestination))
+        {
+            Debug.LogWarning($"[PlayerMovement] FollowTarget: posicao {desiredPosition} sem NavMesh valido.", this);
+            return;
+        }
+
+        agent.isStopped = false;
+        agent.stoppingDistance = followStopDistance;
+        agent.SetDestination(navDestination);
+        nextArrivalCheckTime = Time.time + destinationSettleTime;
+    }
+
+    private Vector3 GetApproachPosition(Transform target)
+    {
+        Collider targetCollider = target.GetComponent<Collider>() ?? target.GetComponentInChildren<Collider>();
+        if (targetCollider != null)
+            return targetCollider.ClosestPoint(transform.position);
+
+        return target.position;
+    }
+
+    private bool TryGetNavMeshPoint(Vector3 source, out Vector3 navPoint)
+    {
+        if (NavMesh.SamplePosition(source, out NavMeshHit navHit, 5f, NavMesh.AllAreas))
+        {
+            navPoint = navHit.position;
+            return true;
+        }
+
+        navPoint = source;
+        return false;
+    }
+
+    private void CompleteArrival()
+    {
+        if (arrivalTriggered)
+            return;
+
+        arrivalTriggered = true;
+
+        Action callback = onReachTarget;
+        followTarget = null;
+        hasPointDestination = false;
+        onReachTarget = null;
+        nextArrivalCheckTime = 0f;
+
+        agent.isStopped = true;
+        agent.ResetPath();
+
+        callback?.Invoke();
     }
 
     private void UpdateAnimation()
@@ -329,7 +375,7 @@ public class PlayerMovement : NetworkBehaviour
         bool wasMoving = anim.GetBool(isMovingParam);
         bool isMovingNow = IsMoving;
 
-        float velocity = agent.velocity.magnitude / agent.speed;
+        float velocity = agent.speed > 0f ? agent.velocity.magnitude / agent.speed : 0f;
         anim.SetFloat(moveSpeedParam, velocity);
         anim.SetBool(isMovingParam, isMovingNow);
         anim.SetBool(isRunningParam, isRunning && isMovingNow);
@@ -337,11 +383,7 @@ public class PlayerMovement : NetworkBehaviour
         if (!wasMoving && isMovingNow)
             OnMovementStarted?.Invoke();
         else if (wasMoving && !isMovingNow)
-        {
             OnMovementStopped?.Invoke();
-            onReachTarget?.Invoke();
-            onReachTarget = null;
-        }
     }
 
     void OnDrawGizmosSelected()
@@ -351,9 +393,8 @@ public class PlayerMovement : NetworkBehaviour
             Gizmos.color = Color.cyan;
             Vector3[] corners = agent.path.corners;
             for (int i = 0; i < corners.Length - 1; i++)
-            {
                 Gizmos.DrawLine(corners[i], corners[i + 1]);
-            }
+
             Gizmos.DrawWireSphere(agent.destination, 0.3f);
         }
     }

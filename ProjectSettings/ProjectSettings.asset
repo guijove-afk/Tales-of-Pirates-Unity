@@ -82,7 +82,7 @@ PlayerSettings:
   androidApplicationEntry: 2
   defaultIsNativeResolution: 1
   macRetinaSupport: 1
-  runInBackground: 0
+  runInBackground: 1
   muteOtherAudioSources: 0
   Prepare IOS For Recording: 0
   Force IOS Speakers When Recording: 0
@@ -904,7 +904,9 @@ PlayerSettings:
   XboxOneOverrideIdentityName: 
   XboxOneOverrideIdentityPublisher: 
   vrEditorSettings: {}
-  cloudServicesEnabled: {}
+  cloudServicesEnabled:
+    Purchasing: 0
+    Unity Ads: 0
   luminIcon:
     m_Name: 
     m_ModelFolderPath: 
@@ -927,11 +929,11 @@ PlayerSettings:
   activeInputHandler: 0
   windowsGamepadBackendHint: 0
   enableDirectStorage: 0
-  cloudProjectId: 21500c94-b5c4-4bfb-b4d2-d6ec18637ee6
+  cloudProjectId: f2089071-6f17-48a0-8d51-be6c96cf913a
   framebufferDepthMemorylessMode: 0
   qualitySettingsNames: []
   projectName: Tales of Pirates Unity
-  organizationId: guijove
+  organizationId: guilhermeesp2025moq0xdtn
   cloudEnabled: 0
   legacyClampBlendShapeWeights: 0
   hmiLoadingImage: {fileID: 0}

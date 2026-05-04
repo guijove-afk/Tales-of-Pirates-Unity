@@ -62,7 +62,8 @@ public class CameraController : MonoBehaviour
 
     private void FindLocalPlayer()
     {
-        var players = UnityEngine.Object.FindObjectsByType<PlayerMovement>(FindObjectsSortMode.None);
+        // CORREÇÃO: Remove FindObjectsSortMode obsoleto
+        var players = UnityEngine.Object.FindObjectsByType<PlayerMovement>(FindObjectsInactive.Include);
         foreach (var player in players)
         {
             if (player.isLocalPlayer)
@@ -82,16 +83,9 @@ public class CameraController : MonoBehaviour
             currentZoom = Mathf.Clamp(currentZoom, minZoom, maxZoom);
         }
 
-        if (allowRotation && Input.GetMouseButton(2))
-        {
-            float mouseX = Input.GetAxis("Mouse X");
-            float mouseY = Input.GetAxis("Mouse Y");
-            currentRotationY += mouseX * rotationSpeed;
-            currentRotationX -= mouseY * rotationSpeed;
-            currentRotationX = Mathf.Clamp(currentRotationX, minAngle, maxAngle);
-        }
+        bool isOrbiting = allowRotation && Input.GetMouseButton(1);
 
-        if (allowRotation && Input.GetKey(KeyCode.LeftAlt) && Input.GetMouseButton(0))
+        if (isOrbiting)
         {
             float mouseX = Input.GetAxis("Mouse X");
             float mouseY = Input.GetAxis("Mouse Y");
@@ -103,26 +97,43 @@ public class CameraController : MonoBehaviour
 
     private void UpdatePosition()
     {
+        Vector3 pivotPosition = target.position + lookAtOffset;
         Quaternion rotation = Quaternion.Euler(currentRotationX, currentRotationY, 0);
-        Vector3 desiredPosition = target.position + rotation * new Vector3(0, 0, -currentZoom);
+        Vector3 desiredPosition = pivotPosition + rotation * new Vector3(0, 0, -currentZoom);
         desiredPosition += offset;
 
         if (avoidCollision)
         {
-            Vector3 direction = desiredPosition - (target.position + lookAtOffset);
+            Vector3 direction = desiredPosition - pivotPosition;
             float distance = direction.magnitude;
 
-            if (Physics.SphereCast(target.position + lookAtOffset, collisionRadius,
-                direction.normalized, out RaycastHit hit, distance, collisionLayers))
+            RaycastHit[] hits = Physics.SphereCastAll(
+                pivotPosition,
+                collisionRadius,
+                direction.normalized,
+                distance,
+                collisionLayers,
+                QueryTriggerInteraction.Ignore);
+
+            if (hits.Length > 0)
             {
-                desiredPosition = hit.point + hit.normal * collisionRadius;
+                System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+                foreach (RaycastHit hit in hits)
+                {
+                    if (target != null && hit.transform.IsChildOf(target))
+                        continue;
+
+                    desiredPosition = hit.point + hit.normal * collisionRadius;
+                    break;
+                }
             }
         }
 
         transform.position = Vector3.SmoothDamp(transform.position, desiredPosition,
             ref currentVelocity, 1f / followSpeed);
 
-        transform.LookAt(target.position + lookAtOffset);
+        transform.LookAt(pivotPosition);
     }
 
     public void SetTarget(Transform newTarget)
@@ -133,6 +144,7 @@ public class CameraController : MonoBehaviour
     public void ResetCamera()
     {
         currentZoom = defaultZoom;
+        currentRotationX = Mathf.Lerp(minAngle, maxAngle, 0.35f);
         currentRotationY = 45f;
     }
 

@@ -4,59 +4,82 @@ using Mirror;
 public class CameraFollow : NetworkBehaviour
 {
     [Header("Seguimento")]
-    public Vector3 offset = new Vector3(0, 12, -8); 
-    
-    [Header("Configurações de Zoom")]
+    public Vector3 offset = new Vector3(0f, 12f, -8f);
+    public Vector3 lookAtOffset = new Vector3(0f, 1.5f, 0f);
+
+    [Header("Configuracoes de Zoom")]
     public float zoomSpeed = 5f;
-    public float minZoom = 5f;   // Altura mínima (perto)
-    public float maxZoom = 20f;  // Altura máxima (longe)
-    
+    public float minZoom = 5f;
+    public float maxZoom = 20f;
+
+    [Header("Rotacao 3D")]
+    public bool allowRotation = true;
+    public float rotationSpeed = 3f;
+    public float minVerticalAngle = -80f;
+    public float maxVerticalAngle = 85f;
+
+    [Header("Limite do Chao")]
+    public LayerMask groundLayers = ~0;
+    public float groundClearance = 0.5f;
+    public float groundCheckHeight = 50f;
+
     private Transform camTransform;
-    private Quaternion fixedRotation;
     private float currentZoom;
+    private float currentYaw = 45f;
+    private float currentPitch = 35f;
 
     void Start()
     {
         if (!isLocalPlayer) return;
-        
-        // Inicializa o zoom com a altura (Y) atual do offset
-        currentZoom = offset.y;
+
+        currentZoom = Mathf.Clamp(offset.magnitude, minZoom, maxZoom);
     }
 
     void LateUpdate()
     {
         if (!isLocalPlayer) return;
 
-        // 1. Busca a câmera se ainda não tiver a referência
         if (camTransform == null)
         {
-            if (Camera.main != null)
-            {
-                camTransform = Camera.main.transform;
-                camTransform.SetParent(null); 
-                fixedRotation = Quaternion.Euler(55, 0, 0);
-                camTransform.rotation = fixedRotation;
-            }
-            return;
+            if (Camera.main == null) return;
+
+            camTransform = Camera.main.transform;
+            camTransform.SetParent(null);
+
+            CameraController controller = camTransform.GetComponent<CameraController>();
+            if (controller != null)
+                controller.enabled = false;
         }
 
-        // 2. Lógica de Zoom (Scroll do Mouse)
         float scrollInput = Input.GetAxis("Mouse ScrollWheel");
-        if (scrollInput != 0)
+        if (scrollInput != 0f)
         {
-            // Altera o valor do zoom baseado no scroll
             currentZoom -= scrollInput * zoomSpeed;
             currentZoom = Mathf.Clamp(currentZoom, minZoom, maxZoom);
-            
-            // Atualiza o offset Y e Z proporcionalmente para manter o ângulo
-            offset.y = currentZoom;
-            offset.z = -currentZoom * 0.7f; // Ajusta a distância proporcional à altura
         }
 
-        // 3. Posicionamento Rígido (para evitar o tremor/quique)
-        camTransform.position = transform.position + offset;
-        
-        // 4. Trava a rotação
-        camTransform.rotation = fixedRotation;
+        if (allowRotation && Input.GetMouseButton(1))
+        {
+            currentYaw += Input.GetAxis("Mouse X") * rotationSpeed;
+            currentPitch -= Input.GetAxis("Mouse Y") * rotationSpeed;
+            currentPitch = Mathf.Clamp(currentPitch, minVerticalAngle, maxVerticalAngle);
+        }
+
+        Vector3 pivotPosition = transform.position + lookAtOffset;
+        Quaternion rotation = Quaternion.Euler(currentPitch, currentYaw, 0f);
+        Vector3 orbitOffset = rotation * new Vector3(0f, 0f, -currentZoom);
+        Vector3 desiredPosition = pivotPosition + orbitOffset;
+
+        Vector3 rayOrigin = desiredPosition + Vector3.up * groundCheckHeight;
+        float rayDistance = groundCheckHeight * 2f;
+        if (Physics.Raycast(rayOrigin, Vector3.down, out RaycastHit groundHit, rayDistance, groundLayers, QueryTriggerInteraction.Ignore))
+        {
+            float minAllowedY = groundHit.point.y + groundClearance;
+            if (desiredPosition.y < minAllowedY)
+                desiredPosition.y = minAllowedY;
+        }
+
+        camTransform.position = desiredPosition;
+        camTransform.LookAt(pivotPosition);
     }
 }
