@@ -245,7 +245,7 @@ public class PlayerInventory : NetworkBehaviour
             EquipItem(equipmentData, slotIndex);
         }
     }
-
+ 
     [Server]
     private void UseConsumable(ConsumableData consumable, int slotIndex)
     {

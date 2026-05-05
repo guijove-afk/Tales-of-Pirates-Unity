@@ -2,10 +2,10 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
-/// <summary>
+///
 /// Adicione este script a um Canvas vazio e clique em "Create Inventory UI" no Inspector.
 /// Gera toda a estrutura de UI do inventário automaticamente.
-/// </summary>
+///
 [ExecuteInEditMode]
 public class InventoryUICreator : MonoBehaviour
 {
@@ -14,6 +14,19 @@ public class InventoryUICreator : MonoBehaviour
     [SerializeField] private int columns = 8;
     [SerializeField] private Vector2 slotSize = new Vector2(64, 64);
     [SerializeField] private Vector2 slotSpacing = new Vector2(5, 5);
+
+    [Header("Sprites")]
+    [SerializeField] private Sprite slotBackgroundSprite;      // slot_background.png
+    [SerializeField] private Sprite slotHighlightSprite;       // slot_highlight.png
+
+    [Header("Ícones de Equipamento Vazio")]
+    [SerializeField] private Sprite emptyHelmetIcon;
+    [SerializeField] private Sprite emptyArmorIcon;
+    [SerializeField] private Sprite emptyWeaponIcon;
+    [SerializeField] private Sprite emptyShieldIcon;
+    [SerializeField] private Sprite emptyGlovesIcon;
+    [SerializeField] private Sprite emptyBootsIcon;
+    [SerializeField] private Sprite emptyCapeIcon;
 
     [Header("Cores")]
     [SerializeField] private Color panelColor = new Color(0.1f, 0.1f, 0.1f, 0.95f);
@@ -36,7 +49,7 @@ public class InventoryUICreator : MonoBehaviour
         }
 
         // Cria estrutura principal
-        var mainPanel = CreatePanel("InventoryPanel", transform, Vector2.zero, 
+        var mainPanel = CreatePanel("InventoryPanel", transform, Vector2.zero,
             new Vector2(800, 500), panelColor);
         mainPanel.SetActive(false); // Começa desativado
 
@@ -44,7 +57,7 @@ public class InventoryUICreator : MonoBehaviour
         CreateTitle(mainPanel.transform);
 
         // Grid de inventário (esquerda)
-        var gridPanel = CreatePanel("GridPanel", mainPanel.transform, 
+        var gridPanel = CreatePanel("GridPanel", mainPanel.transform,
             new Vector2(-200, 0), new Vector2(530, 420), Color.clear);
         CreateInventoryGrid(gridPanel.transform);
 
@@ -109,7 +122,7 @@ public class InventoryUICreator : MonoBehaviour
 
     void CreateInventoryGrid(Transform parent)
     {
-        // Scroll View (para grids grandes)
+        // Scroll View
         var scrollGo = new GameObject("ScrollView");
         scrollGo.transform.SetParent(parent, false);
         var scrollRt = scrollGo.AddComponent<RectTransform>();
@@ -174,10 +187,18 @@ public class InventoryUICreator : MonoBehaviour
         var rt = go.AddComponent<RectTransform>();
         rt.sizeDelta = slotSize;
 
-        // Background
+        // Background - USA O SPRITE slot_background SE DISPONÍVEL
         var bg = go.AddComponent<Image>();
-        bg.color = slotColor;
-        bg.sprite = Resources.GetBuiltinResource<Sprite>("Background.psd");
+        if (slotBackgroundSprite != null)
+        {
+            bg.sprite = slotBackgroundSprite;
+            bg.color = Color.white;
+        }
+        else
+        {
+            bg.color = slotColor;
+            bg.sprite = Resources.GetBuiltinResource<Sprite>("Background.psd");
+        }
 
         // Icon (child)
         var iconGo = new GameObject("Icon");
@@ -189,7 +210,7 @@ public class InventoryUICreator : MonoBehaviour
         iconRt.offsetMax = new Vector2(-4, -4);
 
         var iconImg = iconGo.AddComponent<Image>();
-        iconImg.color = Color.clear; // Invisível até ter item
+        iconImg.color = Color.clear;
         iconImg.raycastTarget = false;
 
         // Quantity (child)
@@ -210,7 +231,7 @@ public class InventoryUICreator : MonoBehaviour
         qtyTxt.gameObject.SetActive(false);
         if (fontAsset != null) qtyTxt.font = fontAsset;
 
-        // Highlight (child, overlay)
+        // Highlight (child, overlay) - USA O SPRITE slot_highlight SE DISPONÍVEL
         var hlGo = new GameObject("Highlight");
         hlGo.transform.SetParent(go.transform, false);
         var hlRt = hlGo.AddComponent<RectTransform>();
@@ -220,139 +241,185 @@ public class InventoryUICreator : MonoBehaviour
         hlRt.offsetMax = Vector2.zero;
 
         var hlImg = hlGo.AddComponent<Image>();
-        hlImg.color = highlightColor;
+        if (slotHighlightSprite != null)
+        {
+            hlImg.sprite = slotHighlightSprite;
+            hlImg.color = new Color(1, 1, 1, 0);
+        }
+        else
+        {
+            hlImg.color = highlightColor;
+        }
         hlImg.raycastTarget = false;
         hlGo.SetActive(false);
 
         // Adiciona componente ItemSlotUI
         var slotUI = go.AddComponent<ItemSlotUI>();
-        // Referências serão configuradas via script ou Inspector depois
 
         return go;
     }
 
-    void CreateEquipmentSlots(Transform parent)
+ void CreateEquipmentSlots(Transform parent)
+{
+    // Título
+    var titleGo = new GameObject("EquipTitle");
+    titleGo.transform.SetParent(parent, false);
+    var titleRt = titleGo.AddComponent<RectTransform>();
+    titleRt.anchorMin = new Vector2(0.5f, 1);
+    titleRt.anchorMax = new Vector2(0.5f, 1);
+    titleRt.pivot = new Vector2(0.5f, 1);
+    titleRt.anchoredPosition = new Vector2(0, -10);
+    titleRt.sizeDelta = new Vector2(180, 30);
+
+    var titleTxt = titleGo.AddComponent<TextMeshProUGUI>();
+    titleTxt.text = "EQUIPAMENTO";
+    titleTxt.fontSize = 18;
+    titleTxt.fontStyle = FontStyles.Bold;
+    titleTxt.alignment = TextAlignmentOptions.Center;
+    titleTxt.color = new Color(0.8f, 0.8f, 0.8f);
+    if (fontAsset != null) titleTxt.font = fontAsset;
+
+    // Slots com ícones específicos - DISTRIBUÍDOS VERTICALMENTE
+    float startY = -50;      // Posição Y inicial (abaixo do título)
+    float spacing = 65;      // Espaço entre cada slot
+
+    CreateEquipmentSlot(parent, EquipmentSlot.Helmet, "Elmo", emptyHelmetIcon, startY);
+    CreateEquipmentSlot(parent, EquipmentSlot.Armor, "Armadura", emptyArmorIcon, startY - spacing);
+    CreateEquipmentSlot(parent, EquipmentSlot.Weapon, "Arma", emptyWeaponIcon, startY - spacing * 2);
+    CreateEquipmentSlot(parent, EquipmentSlot.Shield, "Escudo", emptyShieldIcon, startY - spacing * 3);
+    CreateEquipmentSlot(parent, EquipmentSlot.Gloves, "Luvas", emptyGlovesIcon, startY - spacing * 4);
+    CreateEquipmentSlot(parent, EquipmentSlot.Boots, "Botas", emptyBootsIcon, startY - spacing * 5);
+    CreateEquipmentSlot(parent, EquipmentSlot.Cape, "Capa", emptyCapeIcon, startY - spacing * 6);
+}
+
+GameObject CreateEquipmentSlot(Transform parent, EquipmentSlot slotType, string label, Sprite emptyIcon, float posY)
+{
+    var go = new GameObject($"EquipSlot_{slotType}");
+    go.transform.SetParent(parent, false);
+
+    var rt = go.AddComponent<RectTransform>();
+    rt.anchorMin = new Vector2(0.5f, 1);
+    rt.anchorMax = new Vector2(0.5f, 1);
+    rt.pivot = new Vector2(0.5f, 1);
+    rt.anchoredPosition = new Vector2(0, posY);
+    rt.sizeDelta = new Vector2(180, 60);
+
+    // Background
+    var bg = go.AddComponent<Image>();
+    if (slotBackgroundSprite != null)
     {
-        // Título
-        var titleGo = new GameObject("EquipTitle");
-        titleGo.transform.SetParent(parent, false);
-        var titleRt = titleGo.AddComponent<RectTransform>();
-        titleRt.anchorMin = new Vector2(0.5f, 1);
-        titleRt.anchorMax = new Vector2(0.5f, 1);
-        titleRt.pivot = new Vector2(0.5f, 1);
-        titleRt.anchoredPosition = new Vector2(0, -10);
-        titleRt.sizeDelta = new Vector2(180, 30);
-
-        var titleTxt = titleGo.AddComponent<TextMeshProUGUI>();
-        titleTxt.text = "EQUIPAMENTO";
-        titleTxt.fontSize = 18;
-        titleTxt.fontStyle = FontStyles.Bold;
-        titleTxt.alignment = TextAlignmentOptions.Center;
-        titleTxt.color = new Color(0.8f, 0.8f, 0.8f);
-        if (fontAsset != null) titleTxt.font = fontAsset;
-
-        // Slots
-        EquipmentSlot[] slots = { 
-            EquipmentSlot.Helmet, EquipmentSlot.Armor, EquipmentSlot.Weapon, 
-            EquipmentSlot.Shield, EquipmentSlot.Gloves, EquipmentSlot.Boots 
-        };
-
-        string[] labels = { "Elmo", "Armadura", "Arma", "Escudo", "Luvas", "Botas" };
-
-        float startY = -50;
-        float spacing = 65;
-
-        for (int i = 0; i < slots.Length; i++)
-        {
-            CreateEquipmentSlot(parent, slots[i], labels[i], new Vector2(0, startY - i * spacing));
-        }
+        bg.sprite = slotBackgroundSprite;
+        bg.color = Color.white;
     }
-
-    GameObject CreateEquipmentSlot(Transform parent, EquipmentSlot slotType, string label, Vector2 pos)
+    else
     {
-        var go = new GameObject($"EquipSlot_{slotType}");
-        go.transform.SetParent(parent, false);
-
-        var rt = go.AddComponent<RectTransform>();
-        rt.anchorMin = new Vector2(0.5f, 1);
-        rt.anchorMax = new Vector2(0.5f, 1);
-        rt.pivot = new Vector2(0.5f, 1);
-        rt.anchoredPosition = pos;
-        rt.sizeDelta = new Vector2(180, 60);
-
-        // Background
-        var bg = go.AddComponent<Image>();
         bg.color = new Color(0.15f, 0.15f, 0.15f, 0.9f);
         bg.sprite = Resources.GetBuiltinResource<Sprite>("Background.psd");
+    }
 
-        // Label
-        var labelGo = new GameObject("Label");
-        labelGo.transform.SetParent(go.transform, false);
-        var labelRt = labelGo.AddComponent<RectTransform>();
-        labelRt.anchorMin = new Vector2(0, 1);
-        labelRt.anchorMax = new Vector2(1, 1);
-        labelRt.pivot = new Vector2(0.5f, 1);
-        labelRt.anchoredPosition = new Vector2(0, -2);
-        labelRt.sizeDelta = new Vector2(0, 18);
+    // Label (nome do tipo - "Elmo", "Armadura", etc.)
+    var labelGo = new GameObject("Label");
+    labelGo.transform.SetParent(go.transform, false);
+    var labelRt = labelGo.AddComponent<RectTransform>();
+    labelRt.anchorMin = new Vector2(0, 1);
+    labelRt.anchorMax = new Vector2(1, 1);
+    labelRt.pivot = new Vector2(0.5f, 1);
+    labelRt.anchoredPosition = new Vector2(0, -2);
+    labelRt.sizeDelta = new Vector2(0, 18);
 
-        var labelTxt = labelGo.AddComponent<TextMeshProUGUI>();
-        labelTxt.text = label;
-        labelTxt.fontSize = 12;
-        labelTxt.alignment = TextAlignmentOptions.Center;
-        labelTxt.color = new Color(0.6f, 0.6f, 0.6f);
-        if (fontAsset != null) labelTxt.font = fontAsset;
+    var labelTxt = labelGo.AddComponent<TextMeshProUGUI>();
+    labelTxt.text = label;
+    labelTxt.fontSize = 12;
+    labelTxt.alignment = TextAlignmentOptions.Center;
+    labelTxt.color = new Color(0.6f, 0.6f, 0.6f);
+    if (fontAsset != null) labelTxt.font = fontAsset;
 
-        // Icon area
-        var iconGo = new GameObject("Icon");
-        iconGo.transform.SetParent(go.transform, false);
-        var iconRt = iconGo.AddComponent<RectTransform>();
-        iconRt.anchorMin = new Vector2(0, 0);
-        iconRt.anchorMax = new Vector2(0, 1);
-        iconRt.pivot = new Vector2(0, 0.5f);
-        iconRt.anchoredPosition = new Vector2(5, -10);
-        iconRt.sizeDelta = new Vector2(40, 40);
+    // Icon area - CENTRALIZADO
+    var iconGo = new GameObject("Icon");
+    iconGo.transform.SetParent(go.transform, false);
+    var iconRt = iconGo.AddComponent<RectTransform>();
+    iconRt.anchorMin = new Vector2(0.5f, 0.5f);  // Centro
+    iconRt.anchorMax = new Vector2(0.5f, 0.5f);  // Centro
+    iconRt.pivot = new Vector2(0.5f, 0.5f);      // Pivot no centro
+    iconRt.anchoredPosition = new Vector2(0, -5); // Levemente abaixo do centro
+    iconRt.sizeDelta = new Vector2(40, 40);
 
-        var iconImg = iconGo.AddComponent<Image>();
+    var iconImg = iconGo.AddComponent<Image>();
+    if (emptyIcon != null)
+    {
+        iconImg.sprite = emptyIcon;
+        iconImg.color = new Color(0.3f, 0.3f, 0.3f, 0.5f);
+    }
+    else
+    {
         iconImg.color = Color.clear;
+    }
 
-        // Item name
-        var nameGo = new GameObject("ItemName");
-        nameGo.transform.SetParent(go.transform, false);
-        var nameRt = nameGo.AddComponent<RectTransform>();
-        nameRt.anchorMin = new Vector2(0, 0);
-        nameRt.anchorMax = new Vector2(1, 0);
-        nameRt.pivot = new Vector2(0.5f, 0);
-        nameRt.anchoredPosition = new Vector2(0, 2);
-        nameRt.sizeDelta = new Vector2(0, 16);
+    // Item name (nome do item equipado)
+    var nameGo = new GameObject("ItemName");
+    nameGo.transform.SetParent(go.transform, false);
+    var nameRt = nameGo.AddComponent<RectTransform>();
+    nameRt.anchorMin = new Vector2(0, 0);
+    nameRt.anchorMax = new Vector2(1, 0);
+    nameRt.pivot = new Vector2(0.5f, 0);
+    nameRt.anchoredPosition = new Vector2(0, 2);
+    nameRt.sizeDelta = new Vector2(0, 16);
 
-        var nameTxt = nameGo.AddComponent<TextMeshProUGUI>();
-        nameTxt.text = "Vazio";
-        nameTxt.fontSize = 11;
-        nameTxt.alignment = TextAlignmentOptions.Center;
-        nameTxt.color = new Color(0.4f, 0.4f, 0.4f);
-        if (fontAsset != null) nameTxt.font = fontAsset;
+    var nameTxt = nameGo.AddComponent<TextMeshProUGUI>();
+    nameTxt.text = "Vazio";
+    nameTxt.fontSize = 11;
+    nameTxt.alignment = TextAlignmentOptions.Center;
+    nameTxt.color = new Color(0.4f, 0.4f, 0.4f);
+    if (fontAsset != null) nameTxt.font = fontAsset;
 
-        // Empty indicator
-        var emptyGo = new GameObject("EmptyIndicator");
-        emptyGo.transform.SetParent(go.transform, false);
-        var emptyRt = emptyGo.AddComponent<RectTransform>();
-        emptyRt.anchorMin = Vector2.zero;
-        emptyRt.anchorMax = Vector2.one;
-        emptyRt.offsetMin = new Vector2(50, 5);
-        emptyRt.offsetMax = new Vector2(-5, -20);
+    // Empty indicator (texto "---")
+    var emptyGo = new GameObject("EmptyIndicator");
+    emptyGo.transform.SetParent(go.transform, false);
+    var emptyRt = emptyGo.AddComponent<RectTransform>();
+    emptyRt.anchorMin = new Vector2(0.5f, 0.5f);  // Centro
+    emptyRt.anchorMax = new Vector2(0.5f, 0.5f);  // Centro
+    emptyRt.pivot = new Vector2(0.5f, 0.5f);
+    emptyRt.anchoredPosition = new Vector2(0, -5);
+    emptyRt.sizeDelta = new Vector2(40, 40);
 
-        var emptyTxt = emptyGo.AddComponent<TextMeshProUGUI>();
-        emptyTxt.text = "---";
-        emptyTxt.fontSize = 14;
-        emptyTxt.alignment = TextAlignmentOptions.Center;
-        emptyTxt.color = new Color(0.3f, 0.3f, 0.3f);
-        if (fontAsset != null) emptyTxt.font = fontAsset;
+    var emptyTxt = emptyGo.AddComponent<TextMeshProUGUI>();
+    emptyTxt.text = "---";
+    emptyTxt.fontSize = 14;
+    emptyTxt.alignment = TextAlignmentOptions.Center;
+    emptyTxt.color = new Color(0.3f, 0.3f, 0.3f);
+    if (fontAsset != null) emptyTxt.font = fontAsset;
 
-        // Adiciona componente
-        var slotUI = go.AddComponent<EquipmentSlotUI>();
-        // Configurações via Inspector depois
+    // Adiciona componente EquipmentSlotUI
+    var slotUI = go.AddComponent<EquipmentSlotUI>();
+    ConfigureEquipmentSlotUI(slotUI, slotType, label, bg, iconImg, labelTxt, emptyGo, nameTxt);
 
-        return go;
+    return go;
+}
+
+    void ConfigureEquipmentSlotUI(EquipmentSlotUI slotUI, EquipmentSlot slotType, string label, 
+        Image bg, Image icon, TextMeshProUGUI labelTxt, GameObject emptyInd, TextMeshProUGUI itemName)
+    {
+        // Usa reflection para setar os campos serialized privados
+        var typeField = typeof(EquipmentSlotUI).GetField("slotType", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        if (typeField != null) typeField.SetValue(slotUI, slotType);
+
+        var labelField = typeof(EquipmentSlotUI).GetField("slotLabel", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        if (labelField != null) labelField.SetValue(slotUI, label);
+
+        var bgField = typeof(EquipmentSlotUI).GetField("backgroundImage", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        if (bgField != null) bgField.SetValue(slotUI, bg);
+
+        var iconField = typeof(EquipmentSlotUI).GetField("iconImage", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        if (iconField != null) iconField.SetValue(slotUI, icon);
+
+        var labelTextField = typeof(EquipmentSlotUI).GetField("labelText", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        if (labelTextField != null) labelTextField.SetValue(slotUI, labelTxt);
+
+        var emptyField = typeof(EquipmentSlotUI).GetField("emptyIndicator", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        if (emptyField != null) emptyField.SetValue(slotUI, emptyInd);
+
+        var nameField = typeof(EquipmentSlotUI).GetField("itemNameText", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        if (nameField != null) nameField.SetValue(slotUI, itemName);
     }
 
     void CreateTooltip(Transform parent)
@@ -392,7 +459,7 @@ public class InventoryUICreator : MonoBehaviour
         nameTxt.fontSize = 16;
         nameTxt.fontStyle = FontStyles.Bold;
         nameTxt.alignment = TextAlignmentOptions.Left;
-        nameTxt.color = new Color(1f, 0.8f, 0.2f); // Dourado
+        nameTxt.color = new Color(1f, 0.8f, 0.2f);
         if (fontAsset != null) nameTxt.font = fontAsset;
 
         // Tipo
@@ -465,10 +532,9 @@ public class InventoryUICreator : MonoBehaviour
 
         var btn = go.AddComponent<Button>();
         btn.onClick.AddListener(() => {
-            var ui = GetComponent<InventoryUI>();
-            if (ui != null) ui.ToggleInventory();
+            var inventoryUI = GetComponent<InventoryUI>();
+            if (inventoryUI != null) inventoryUI.ToggleInventory();
         });
     }
-
     #endregion
 }

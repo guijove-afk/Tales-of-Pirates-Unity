@@ -2,17 +2,19 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
-/// <summary>
+///
 /// Adicione este script junto com InventoryUICreator.
 /// Depois de criar a UI, clique em "Setup References" para conectar tudo.
-/// </summary>
+///
 [ExecuteInEditMode]
 public class InventorySetup : MonoBehaviour
 {
     [Header("Referências do Player")]
     [SerializeField] private InventorySystem inventorySystem;
     [SerializeField] private PlayerEquipment playerEquipment;
-    [SerializeField] private ItemDatabaseAdapter itemDatabaseAdapter;
+    
+    [Header("Referência do Database")]
+    [SerializeField] private ItemDatabase itemDatabase;  // <-- NOVO CAMPO!
 
     [ContextMenu("Setup References")]
     public void SetupReferences()
@@ -25,7 +27,6 @@ public class InventorySetup : MonoBehaviour
         // Configura referências
         inventoryUI.SetField("inventorySystem", inventorySystem);
         inventoryUI.SetField("playerEquipment", playerEquipment);
-        inventoryUI.SetField("itemDatabaseAdapter", itemDatabaseAdapter);
 
         // Encontra panels
         var panel = transform.Find("InventoryPanel");
@@ -108,9 +109,9 @@ public static class ReflectionHelper
 {
     public static void SetField(this object obj, string fieldName, object value)
     {
-        var field = obj.GetType().GetField(fieldName, System.Reflection.BindingFlags.NonPublic | 
-                                                      System.Reflection.BindingFlags.Instance | 
-                                                      System.Reflection.BindingFlags.Public);
+        var field = obj.GetType().GetField(fieldName, System.Reflection.BindingFlags.NonPublic |
+            System.Reflection.BindingFlags.Instance |
+            System.Reflection.BindingFlags.Public);
         if (field != null)
             field.SetValue(obj, value);
     }

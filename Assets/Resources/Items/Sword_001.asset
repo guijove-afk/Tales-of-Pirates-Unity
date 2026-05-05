@@ -1,0 +1,57 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a8b17102b06728243b22fd156cd647b3, type: 3}
+  m_Name: Sword_001
+  m_EditorClassIdentifier: Assembly-CSharp::EquipmentData
+  itemId: 0001
+  itemName: Sword of Crimson Thunder
+  description: "Uma espada b\xE1sica para iniciantes"
+  icon: {fileID: 21300000, guid: 0bb193b7118fd45459150f068f56aad0, type: 3}
+  maxStack: 1
+  isDroppable: 1
+  itemType: 0
+  rarity: 0
+  useEffect: {fileID: 0}
+  useSound: {fileID: 0}
+  worldModelPrefab: {fileID: 919132149155446097, guid: 4e3f786985d40434e86a496ada3a43c0, type: 3}
+  dropRotation: {x: 0, y: 0, z: 0}
+  dropScale: 1
+  slot: 2
+  weaponType: 1
+  armorType: 0
+  requiredLevel: 1
+  requiredClass: 0
+  durability: 100
+  maxDurability: 100
+  gemSlots: 3
+  maleModelPrefab: {fileID: 0}
+  femaleModelPrefab: {fileID: 0}
+  modelOffset: {x: 0, y: 0, z: 0}
+  modelRotation: {x: 0, y: 0, z: 0}
+  modelScale: {x: 1, y: 1, z: 1}
+  equipEffect: {fileID: 0}
+  equipSound: {fileID: 0}
+  bonusSTR: 10
+  bonusAGI: 0
+  bonusCON: 0
+  bonusSPR: 0
+  bonusACC: 0
+  bonusLUCK: 0
+  bonusHP: 0
+  bonusMP: 0
+  bonusSP: 0
+  bonusAttack: 0
+  bonusDefense: 0
+  bonusMagicAttack: 0
+  bonusMagicDefense: 0
+  bonusAttackSpeed: 0
+  bonusMoveSpeed: 0

@@ -83,14 +83,18 @@ public class PlayerMovement : NetworkBehaviour
         }
     }
 
-    void Update()
-    {
-        if (!isLocalPlayer || !isMovementEnabled) return;
+void Update()
+{
+    if (!isLocalPlayer || !isMovementEnabled) return;
 
-        HandleInput();
-        UpdateMoveGoal();
-        UpdateAnimation();
-    }
+    // Bloqueia movimento se o mouse está sobre o inventário
+    if (InventoryUI.Instance != null && InventoryUI.Instance.IsMouseOverInventory())
+        return;
+
+    HandleInput();
+    UpdateMoveGoal();
+    UpdateAnimation();
+}
 
     private void HandleInput()
     {

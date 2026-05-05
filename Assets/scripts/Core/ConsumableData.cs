@@ -21,10 +21,11 @@ public class ConsumableData : ItemData
     public float cooldown = 1.0f;
     public bool canUseInCombat = true;
     public bool canUseWhileMoving = false;
-
-    [Header("Efeitos Visuais")]
-    public ParticleSystem useEffect;
-    public AudioClip useSound;
+    public int requiredLevel;  // <-- ADICIONAR
+    // REMOVIDO: useEffect e useSound já existem em ItemData
+    // [Header("Efeitos Visuais")]
+    // public ParticleSystem useEffect;
+    // public AudioClip useSound;
 }
 
 [System.Serializable]

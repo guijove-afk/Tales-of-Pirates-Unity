@@ -2,11 +2,9 @@ using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
 using TMPro;
+using System.Collections.Generic;
 
-/// <summary>
-/// Slot individual do grid de inventário.
-/// </summary>
-public class ItemSlotUI : MonoBehaviour, IPointerClickHandler, IPointerEnterHandler, IPointerExitHandler
+public class ItemSlotUI : MonoBehaviour, IPointerClickHandler, IBeginDragHandler, IDragHandler, IEndDragHandler, IDropHandler, IPointerEnterHandler, IPointerExitHandler
 {
     [Header("UI Elements")]
     [SerializeField] private Image backgroundImage;
@@ -15,71 +13,54 @@ public class ItemSlotUI : MonoBehaviour, IPointerClickHandler, IPointerEnterHand
     [SerializeField] private Image highlightImage;
 
     [Header("Cores")]
-    [SerializeField] private Color normalColor = new Color(0.2f, 0.2f, 0.2f, 0.8f);
-    [SerializeField] private Color hoverColor = new Color(0.3f, 0.3f, 0.3f, 0.9f);
+    [SerializeField] private Color normalColor = new Color(1, 1, 1, 0.8f);
+    [SerializeField] private Color hoverColor = new Color(1, 1, 1, 1);
 
     private int slotIndex;
     private InventoryUI inventoryUI;
-    private EquipmentData currentItem;  // Seu EquipmentData
-    private int currentQuantity;
+    private bool isDragging = false;
 
     public int SlotIndex => slotIndex;
-    public EquipmentData CurrentItem => currentItem;
-    public bool HasItem => currentItem != null;
 
     public void Initialize(int index, InventoryUI ui)
     {
         slotIndex = index;
         inventoryUI = ui;
-        Clear();
     }
 
-    public void SetItem(EquipmentData item, int quantity, int durability = -1)
+    public void SetItem(EquipmentData item, int quantity, int durability)
     {
-        currentItem = item;
-        currentQuantity = quantity;
-
         if (item == null)
         {
             Clear();
             return;
         }
 
-        // Ícone - seu EquipmentData não tem icon ainda, pode adicionar depois
-        // Por enquanto usa um sprite default ou deixa vazio
-        iconImage.enabled = true;
+        iconImage.sprite = item.icon;
         iconImage.color = Color.white;
+        iconImage.enabled = true;
 
-        // Quantidade
-        quantityText.gameObject.SetActive(false); // Equipamentos não stackam
-
-        // Nome do item como texto (temporário até ter ícone)
-        // Você pode adicionar um TextMeshPro para nome aqui
+        if (quantity > 1)
+        {
+            quantityText.text = quantity.ToString();
+            quantityText.gameObject.SetActive(true);
+        }
+        else
+        {
+            quantityText.gameObject.SetActive(false);
+        }
     }
 
     public void Clear()
     {
-        currentItem = null;
-        currentQuantity = 0;
-
         iconImage.sprite = null;
+        iconImage.color = Color.clear;
         iconImage.enabled = false;
         quantityText.gameObject.SetActive(false);
-        highlightImage.enabled = false;
-
-        backgroundImage.color = normalColor;
-    }
-
-    public void SetHighlight(bool highlight)
-    {
-        highlightImage.enabled = highlight;
     }
 
     public void OnPointerClick(PointerEventData eventData)
     {
-        if (currentItem == null) return;
-
-        // Double click = equipar
         if (eventData.clickCount == 2)
         {
             inventoryUI?.OnSlotDoubleClick(slotIndex);
@@ -90,19 +71,86 @@ public class ItemSlotUI : MonoBehaviour, IPointerClickHandler, IPointerEnterHand
         }
     }
 
+    public void OnBeginDrag(PointerEventData eventData)
+    {
+        if (iconImage.sprite == null) return;
+
+        isDragging = true;
+        iconImage.transform.SetParent(inventoryUI.transform);
+        iconImage.transform.SetAsLastSibling();
+    }
+
+    public void OnDrag(PointerEventData eventData)
+    {
+        if (!isDragging) return;
+        iconImage.transform.position = eventData.position;
+    }
+
+    public void OnEndDrag(PointerEventData eventData)
+    {
+        if (!isDragging) return;
+        isDragging = false;
+
+        iconImage.transform.SetParent(transform);
+        iconImage.transform.localPosition = Vector3.zero;
+
+        var equipSlot = GetEquipmentSlotUnderMouse(eventData);
+        if (equipSlot != null)
+        {
+            inventoryUI?.OnSlotDraggedToEquipment(slotIndex, equipSlot.SlotType);
+        }
+        else
+        {
+            var otherSlot = GetSlotUnderMouse(eventData);
+            if (otherSlot != null && otherSlot != this)
+            {
+                inventoryUI?.OnSlotDropped(slotIndex, otherSlot.slotIndex);
+            }
+        }
+    }
+
+    public void OnDrop(PointerEventData eventData)
+    {
+        var draggedEquip = eventData.pointerDrag?.GetComponent<EquipmentSlotUI>();
+        if (draggedEquip != null)
+        {
+            inventoryUI?.OnEquipmentDraggedToInventory(draggedEquip.SlotType, slotIndex);
+        }
+    }
+
+    EquipmentSlotUI GetEquipmentSlotUnderMouse(PointerEventData eventData)
+    {
+        var results = new List<RaycastResult>();
+        EventSystem.current.RaycastAll(eventData, results);
+
+        foreach (var result in results)
+        {
+            var equipSlot = result.gameObject.GetComponent<EquipmentSlotUI>();
+            if (equipSlot != null) return equipSlot;
+        }
+        return null;
+    }
+
+    ItemSlotUI GetSlotUnderMouse(PointerEventData eventData)
+    {
+        var results = new List<RaycastResult>();
+        EventSystem.current.RaycastAll(eventData, results);
+
+        foreach (var result in results)
+        {
+            var slot = result.gameObject.GetComponent<ItemSlotUI>();
+            if (slot != null) return slot;
+        }
+        return null;
+    }
+
     public void OnPointerEnter(PointerEventData eventData)
     {
         backgroundImage.color = hoverColor;
-
-        if (currentItem != null && inventoryUI != null)
-        {
-            inventoryUI.ShowTooltip(currentItem, transform.position);
-        }
     }
 
     public void OnPointerExit(PointerEventData eventData)
     {
-        backgroundImage.color = highlightImage.enabled ? hoverColor : normalColor;
-        inventoryUI?.HideTooltip();
+        backgroundImage.color = normalColor;
     }
 }
