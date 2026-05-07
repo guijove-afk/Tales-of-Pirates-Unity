@@ -1,138 +1,207 @@
-// Assets/Scripts/Services/SecurityLogService.cs
 using UnityEngine;
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
+using UnityEngine.UI;
+using TMPro;
+using Mirror;
+using TOP.Network;
+using TOP.Services;
 
-namespace TOP.Services
+namespace TOP.UI
 {
-    /// <summary>
-    /// Serviço de logs de segurança - registra ações suspeitas.
-    /// 
-    /// SEGURANÇA:
-    /// - Logs async para não bloquear gameplay
-    /// - Buffer em memória + flush periódico
-    /// - Categorização por severidade
-    /// </summary>
-    public class SecurityLogService : MonoBehaviour
+    public class LoginUIManager : MonoBehaviour
     {
-        public static SecurityLogService Instance { get; private set; }
-        
-        [Header("Config")]
-        [SerializeField] private bool logToConsole = true;
-        [SerializeField] private bool logToDatabase = true;
-        [SerializeField] private int bufferSize = 100;
-        [SerializeField] private float flushInterval = 30f;
-        
-        private readonly Queue<SecurityLogEntry> _buffer = new Queue<SecurityLogEntry>();
-        private float _nextFlush;
-        
-        void Awake()
+        [Header("Panels")]
+        [SerializeField] private GameObject loginPanel;
+        [SerializeField] private GameObject registerPanel;
+        [SerializeField] private GameObject loadingPanel;
+        [SerializeField] private GameObject errorPanel;
+
+        [Header("Login Inputs")]
+        [SerializeField] private TMP_InputField loginUsername;
+        [SerializeField] private TMP_InputField loginPassword;
+        [SerializeField] private Button loginButton;
+        [SerializeField] private Button gotoRegisterButton;
+
+        [Header("Register Inputs")]
+        [SerializeField] private TMP_InputField registerUsername;
+        [SerializeField] private TMP_InputField registerPassword;
+        [SerializeField] private TMP_InputField registerConfirmPassword;
+        [SerializeField] private TMP_InputField registerEmail;
+        [SerializeField] private Button registerButton;
+        [SerializeField] private Button backToLoginButton;
+
+        [Header("Error")]
+        [SerializeField] private TextMeshProUGUI errorText;
+        [SerializeField] private Button errorOkButton;
+
+        [Header("Server")]
+        [SerializeField] private TMP_InputField serverAddress;
+        [SerializeField] private TMP_InputField serverPort;
+
+        private NetworkManager networkManager;
+
+        void Start()
         {
-            if (Instance != null) { Destroy(gameObject); return; }
-            Instance = this;
-            DontDestroyOnLoad(gameObject);
+            networkManager = NetworkManager.singleton;
+
+            loginButton.onClick.AddListener(OnLoginClick);
+            gotoRegisterButton.onClick.AddListener(() => ShowPanel(registerPanel));
+            registerButton.onClick.AddListener(OnRegisterClick);
+            backToLoginButton.onClick.AddListener(() => ShowPanel(loginPanel));
+            errorOkButton.onClick.AddListener(() => errorPanel.SetActive(false));
+
+            NetworkClient.RegisterHandler<LoginResponse>(OnLoginResponse);
+            NetworkClient.RegisterHandler<ServerMessage>(OnServerMessage);
+
+            ShowPanel(loginPanel);
+
+            if (PlayerPrefs.HasKey("TOP_LastUser"))
+                loginUsername.text = PlayerPrefs.GetString("TOP_LastUser");
+
+            if (PlayerPrefs.HasKey("TOP_Server"))
+                serverAddress.text = PlayerPrefs.GetString("TOP_Server");
+            else
+                serverAddress.text = "localhost";
+
+            if (PlayerPrefs.HasKey("TOP_Port"))
+                serverPort.text = PlayerPrefs.GetString("TOP_Port");
+            else
+                serverPort.text = "7777";
         }
-        
-        void Update()
+
+        void OnDestroy()
         {
-            if (Time.time >= _nextFlush && _buffer.Count > 0)
+            loginButton.onClick.RemoveAllListeners();
+            gotoRegisterButton.onClick.RemoveAllListeners();
+            registerButton.onClick.RemoveAllListeners();
+            backToLoginButton.onClick.RemoveAllListeners();
+            errorOkButton.onClick.RemoveAllListeners();
+        }
+
+        void ShowPanel(GameObject panel)
+        {
+            loginPanel.SetActive(panel == loginPanel);
+            registerPanel.SetActive(panel == registerPanel);
+            loadingPanel.SetActive(panel == loadingPanel);
+        }
+
+        void ShowError(string message)
+        {
+            errorText.text = message;
+            errorPanel.SetActive(true);
+            loadingPanel.SetActive(false);
+        }
+
+        void OnLoginClick()
+        {
+            if (string.IsNullOrWhiteSpace(loginUsername.text))
             {
-                FlushBuffer();
-                _nextFlush = Time.time + flushInterval;
+                ShowError("Digite um nome de usuario!");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(loginPassword.text))
+            {
+                ShowError("Digite uma senha!");
+                return;
+            }
+
+            ShowPanel(loadingPanel);
+
+            networkManager.networkAddress = serverAddress.text;
+
+            PlayerPrefs.SetString("TOP_LastUser", loginUsername.text);
+            PlayerPrefs.SetString("TOP_Server", serverAddress.text);
+            PlayerPrefs.SetString("TOP_Port", serverPort.text);
+            PlayerPrefs.Save();
+
+            networkManager.StartClient();
+
+            StartCoroutine(SendLoginAfterConnect());
+        }
+
+        System.Collections.IEnumerator SendLoginAfterConnect()
+        {
+            float timeout = 10f;
+            float elapsed = 0f;
+
+            while (!NetworkClient.isConnected && elapsed < timeout)
+            {
+                elapsed += Time.deltaTime;
+                yield return null;
+            }
+
+            if (!NetworkClient.isConnected)
+            {
+                ShowError("Nao foi possivel conectar ao servidor!");
+                yield break;
+            }
+
+            NetworkClient.Send(new LoginRequest
+            {
+                Username = loginUsername.text,
+                Password = loginPassword.text
+            });
+        }
+
+        void OnLoginResponse(LoginResponse msg)
+        {
+            if (!msg.Success)
+            {
+                ShowError($"Login falhou: {msg.ErrorCode}");
+                NetworkClient.Disconnect();
+                return;
+            }
+
+            Debug.Log($"Login OK! Token: {msg.SessionToken}");
+
+            UnityEngine.SceneManagement.SceneManager.LoadScene("CharacterSelectScene");
+        }
+
+        void OnRegisterClick()
+        {
+            if (string.IsNullOrWhiteSpace(registerUsername.text) || registerUsername.text.Length < 3)
+            {
+                ShowError("Nome de usuario muito curto (min 3 chars)");
+                return;
+            }
+
+            if (registerPassword.text != registerConfirmPassword.text)
+            {
+                ShowError("As senhas nao coincidem!");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(registerEmail.text))
+            {
+                ShowError("Digite um email!");
+                return;
+            }
+
+            ShowPanel(loadingPanel);
+
+            _ = RegisterAsync(registerUsername.text, registerPassword.text, registerEmail.text);
+        }
+
+        async System.Threading.Tasks.Task RegisterAsync(string user, string pass, string email)
+        {
+            var success = await DatabaseService.Instance.CreateAccountAsync(user, pass, email);
+
+            if (success)
+            {
+                ShowError("Conta criada com sucesso! Faca login.");
+                ShowPanel(loginPanel);
+                loginUsername.text = user;
+            }
+            else
+            {
+                ShowError("Falha ao criar conta. Tente outro nome.");
+                ShowPanel(registerPanel);
             }
         }
-        
-        /// <summary>
-        /// Registra evento de segurança.
-        /// </summary>
-        public void Log(long? characterId, long? accountId, string message, 
-            LogSeverity severity = LogSeverity.Warning, string ipAddress = null)
+
+        void OnServerMessage(ServerMessage msg)
         {
-            var entry = new SecurityLogEntry
-            {
-                Timestamp = DateTime.Now,
-                CharacterId = characterId,
-                AccountId = accountId,
-                Message = message,
-                Severity = severity,
-                IpAddress = ipAddress
-            };
-            
-            _buffer.Enqueue(entry);
-            
-            if (logToConsole)
-            {
-                string log = $"[SECURITY] [{severity}] {message} (Char:{characterId}, Acc:{accountId})";
-                switch (severity)
-                {
-                    case LogSeverity.Info: Debug.Log(log); break;
-                    case LogSeverity.Warning: Debug.LogWarning(log); break;
-                    case LogSeverity.Critical: Debug.LogError(log); break;
-                }
-            }
-            
-            // Flush imediato para eventos críticos
-            if (severity == LogSeverity.Critical)
-                FlushBuffer();
-            
-            // Flush se buffer cheio
-            if (_buffer.Count >= bufferSize)
-                FlushBuffer();
+            ShowError(msg.Text);
         }
-        
-        void FlushBuffer()
-        {
-            if (!logToDatabase || _buffer.Count == 0) return;
-            
-            var entries = new List<SecurityLogEntry>();
-            while (_buffer.Count > 0 && entries.Count < bufferSize)
-                entries.Add(_buffer.Dequeue());
-            
-            _ = FlushToDatabaseAsync(entries);
-        }
-        
-        async Task FlushToDatabaseAsync(List<SecurityLogEntry> entries)
-        {
-            try
-            {
-                foreach (var entry in entries)
-                {
-                    await DatabaseService.Instance.LogAuditAsync(
-                        entry.AccountId, 
-                        entry.CharacterId,
-                        "SECURITY",
-                        new 
-                        { 
-                            severity = entry.Severity.ToString(),
-                            message = entry.Message,
-                            ip = entry.IpAddress
-                        },
-                        entry.IpAddress
-                    );
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"[SecurityLog] Falha ao flush: {ex.Message}");
-            }
-        }
-    }
-    
-    public enum LogSeverity
-    {
-        Info,
-        Warning,
-        Critical
-    }
-    
-    public struct SecurityLogEntry
-    {
-        public DateTime Timestamp;
-        public long? CharacterId;
-        public long? AccountId;
-        public string Message;
-        public LogSeverity Severity;
-        public string IpAddress;
     }
 }

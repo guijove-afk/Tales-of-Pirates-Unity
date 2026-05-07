@@ -1,84 +1,45 @@
 using UnityEngine;
 using Mirror;
-using System.Collections;
+using TOP.Gameplay;
 
-public class PlayerRespawn : NetworkBehaviour
+namespace TOP.Player
 {
-    [Header("Settings")]
-    [SerializeField] private float respawnDelay = 5f;
-    [SerializeField] private Vector3 spawnPoint = Vector3.zero;
-    [SerializeField] private ParticleSystem respawnEffect;
-    [SerializeField] private AudioClip respawnSound;
-
-    private PlayerStats stats;
-    private PlayerMovement movement;
-    private PlayerCombat combat;
-
-    void Awake()
+    public class PlayerRespawn : NetworkBehaviour
     {
-        stats = GetComponent<PlayerStats>();
-        movement = GetComponent<PlayerMovement>();
-        combat = GetComponent<PlayerCombat>();
-    }
+        [SerializeField] private float respawnDelay = 5f;
+        [SerializeField] private Vector3[] respawnPoints;
 
-    void Start()
-    {
-        if (stats != null)
+        private PlayerController _controller;
+        private PlayerStats _stats;
+        private bool _isDead;
+
+        void Awake()
         {
-            stats.OnDeath += OnPlayerDeath;
-        }
-    }
-
-    void OnDestroy()
-    {
-        if (stats != null)
-        {
-            stats.OnDeath -= OnPlayerDeath;
-        }
-    }
-
-    private void OnPlayerDeath()
-    {
-        if (!isServer) return;
-
-        StartCoroutine(RespawnSequence());
-    }
-
-    private IEnumerator RespawnSequence()
-    {
-        yield return new WaitForSeconds(respawnDelay);
-
-        stats.Revive(true);
-    }
-
-    [Client]
-    public void RespawnAtSpawnPoint()
-    {
-        transform.position = spawnPoint;
-        transform.rotation = Quaternion.identity;
-
-        if (respawnEffect != null)
-        {
-            ParticleSystem effect = Instantiate(respawnEffect, transform.position, Quaternion.identity);
-            Destroy(effect.gameObject, 3f);
+            _controller = GetComponent<PlayerController>();
+            _stats = GetComponent<PlayerStats>();
         }
 
-        if (respawnSound != null)
+        [Server]
+        public void Die()
         {
-            AudioSource.PlayClipAtPoint(respawnSound, transform.position);
+            if (_isDead) return;
+            _isDead = true;
+
+            _controller.Die();
+            Invoke(nameof(RespawnPlayer), respawnDelay);
         }
 
-        DamagePopupManager.Instance?.ShowText(transform.position + Vector3.up * 2f, "Ressuscitado!", Color.green);
-    }
+        [Server]
+        void RespawnPlayer()
+        {
+            _isDead = false;
 
-    [Command]
-    public void CmdSetSpawnPoint(Vector3 position)
-    {
-        spawnPoint = position;
-    }
+            Vector3 respawnPos = respawnPoints.Length > 0
+                ? respawnPoints[UnityEngine.Random.Range(0, respawnPoints.Length)]
+                : Vector3.zero;
 
-    public void SetSpawnPoint(Vector3 position)
-    {
-        spawnPoint = position;
+            transform.position = respawnPos;
+            _controller.RespawnPlayer();
+        }
     }
 }

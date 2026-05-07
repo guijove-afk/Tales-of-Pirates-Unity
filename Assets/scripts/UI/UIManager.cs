@@ -1,149 +1,75 @@
 using UnityEngine;
-using System;
+using TMPro;
+using TOP.Gameplay;
 
-public class UIManager : MonoBehaviour
+namespace TOP.UI
 {
-    public static UIManager Instance { get; private set; }
-
-    [Header("Panels")]
-    [SerializeField] private GameObject inventoryPanel;
-    [SerializeField] private GameObject equipmentPanel;
-    [SerializeField] private GameObject skillPanel;
-    [SerializeField] private GameObject questPanel;
-    [SerializeField] private GameObject characterPanel;
-    [SerializeField] private GameObject shopPanel;
-    [SerializeField] private GameObject dialoguePanel;
-    [SerializeField] private GameObject blacksmithPanel;
-    [SerializeField] private GameObject bankPanel;
-    [SerializeField] private GameObject guildPanel;
-    [SerializeField] private GameObject stablePanel;
-    [SerializeField] private GameObject teleportPanel;
-    [SerializeField] private GameObject optionsPanel;
-    [SerializeField] private GameObject mapPanel;
-
-    [Header("HUD")]
-    [SerializeField] private GameObject hudPanel;
-    [SerializeField] private GameObject chatPanel;
-    [SerializeField] private GameObject minimapPanel;
-
-    void Awake()
+    public class UIManager : MonoBehaviour
     {
-        if (Instance != null && Instance != this)
+        public static UIManager Instance { get; private set; }
+
+        [Header("Player HUD")]
+        [SerializeField] private TextMeshProUGUI playerNameText;
+        [SerializeField] private TextMeshProUGUI levelText;
+        [SerializeField] private UnityEngine.UI.Slider hpBar;
+        [SerializeField] private UnityEngine.UI.Slider mpBar;
+        [SerializeField] private TextMeshProUGUI hpText;
+        [SerializeField] private TextMeshProUGUI mpText;
+
+        [Header("Messages")]
+        [SerializeField] private GameObject messagePanel;
+        [SerializeField] private TextMeshProUGUI messageText;
+        [SerializeField] private float messageDuration = 3f;
+
+        private PlayerController localPlayer;
+
+        void Awake()
         {
-            Destroy(gameObject);
-            return;
+            if (Instance != null) { Destroy(gameObject); return; }
+            Instance = this;
         }
-        Instance = this;
-        DontDestroyOnLoad(gameObject);
-    }
 
-    void Update()
-    {
-        HandleInput();
-    }
+        public void SetupLocalPlayer(PlayerController player)
+        {
+            localPlayer = player;
+            playerNameText.text = player.CharacterName;
+            UpdateStats();
+        }
 
-    private void HandleInput()
-    {
-        if (Input.GetKeyDown(KeyCode.I))
-            TogglePanel(inventoryPanel);
+        void Update()
+        {
+            if (localPlayer != null)
+            {
+                UpdateStats();
+            }
+        }
 
-        if (Input.GetKeyDown(KeyCode.E))
-            TogglePanel(equipmentPanel);
+        void UpdateStats()
+        {
+            if (localPlayer.Stats == null) return;
 
-        if (Input.GetKeyDown(KeyCode.K))
-            TogglePanel(skillPanel);
+            levelText.text = $"Lv. {localPlayer.Level}";
 
-        if (Input.GetKeyDown(KeyCode.Q))
-            TogglePanel(questPanel);
+            hpBar.maxValue = localPlayer.Stats.MaxHp;
+            hpBar.value = localPlayer.Stats.CurrentHp;
+            hpText.text = $"{localPlayer.Stats.CurrentHp} / {localPlayer.Stats.MaxHp}";
 
-        if (Input.GetKeyDown(KeyCode.C))
-            TogglePanel(characterPanel);
+            mpBar.maxValue = localPlayer.Stats.MaxMp;
+            mpBar.value = localPlayer.Stats.CurrentMp;
+            mpText.text = $"{localPlayer.Stats.CurrentMp} / {localPlayer.Stats.MaxMp}";
+        }
 
-        if (Input.GetKeyDown(KeyCode.M))
-            TogglePanel(mapPanel);
+        public void ShowMessage(string message, PlayerMessageType type)
+        {
+            messageText.text = message;
+            messagePanel.SetActive(true);
+            CancelInvoke(nameof(HideMessage));
+            Invoke(nameof(HideMessage), messageDuration);
+        }
 
-        if (Input.GetKeyDown(KeyCode.Return))
-            TogglePanel(chatPanel);
-
-        if (Input.GetKeyDown(KeyCode.Escape))
-            TogglePanel(optionsPanel);
-    }
-
-    private void TogglePanel(GameObject panel)
-    {
-        if (panel == null) return;
-        panel.SetActive(!panel.activeSelf);
-    }
-
-    private void CloseAllPanels()
-    {
-        inventoryPanel?.SetActive(false);
-        equipmentPanel?.SetActive(false);
-        skillPanel?.SetActive(false);
-        questPanel?.SetActive(false);
-        characterPanel?.SetActive(false);
-        shopPanel?.SetActive(false);
-        dialoguePanel?.SetActive(false);
-        blacksmithPanel?.SetActive(false);
-        bankPanel?.SetActive(false);
-        guildPanel?.SetActive(false);
-        stablePanel?.SetActive(false);
-        teleportPanel?.SetActive(false);
-        optionsPanel?.SetActive(false);
-        mapPanel?.SetActive(false);
-    }
-
-    public void OpenShop(string npcId, string[] items)
-    {
-        CloseAllPanels();
-        shopPanel?.SetActive(true);
-    }
-
-    public void OpenQuestDialogue(string npcId, string[] dialogue, string[] availableQuests, string[] completesQuests)
-    {
-        CloseAllPanels();
-        dialoguePanel?.SetActive(true);
-    }
-
-    public void OpenBlacksmith(string npcId)
-    {
-        CloseAllPanels();
-        blacksmithPanel?.SetActive(true);
-    }
-
-    public void OpenBank(string npcId)
-    {
-        CloseAllPanels();
-        bankPanel?.SetActive(true);
-    }
-
-    public void OpenGuild(string npcId)
-    {
-        CloseAllPanels();
-        guildPanel?.SetActive(true);
-    }
-
-    public void OpenSkillTree(string npcId)
-    {
-        CloseAllPanels();
-        skillPanel?.SetActive(true);
-    }
-
-    public void OpenStable(string npcId)
-    {
-        CloseAllPanels();
-        stablePanel?.SetActive(true);
-    }
-
-    public void OpenTeleport(string npcId)
-    {
-        CloseAllPanels();
-        teleportPanel?.SetActive(true);
-    }
-
-    public void OpenDialogue(string npcId, string[] dialogue)
-    {
-        CloseAllPanels();
-        dialoguePanel?.SetActive(true);
+        void HideMessage()
+        {
+            messagePanel.SetActive(false);
+        }
     }
 }

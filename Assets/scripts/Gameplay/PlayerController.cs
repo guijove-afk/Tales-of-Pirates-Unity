@@ -1,526 +1,268 @@
-// Assets/Scripts/Gameplay/PlayerController.cs
-using System;
-using Mirror;
 using UnityEngine;
-using UnityEngine.AI;
-using TOP.Services;
+using Mirror;
 using TOP.Data;
+using TOP.Player;
+using TOP.Core;
+using TOP.UI;
+using TOP.Systems;
+using TOP.Network;
 
 namespace TOP.Gameplay
 {
-    [RequireComponent(typeof(NavMeshAgent))]
+    [RequireComponent(typeof(PlayerMovement))]
+    [RequireComponent(typeof(PlayerStats))]
+    [RequireComponent(typeof(PlayerInventory))]
+    [RequireComponent(typeof(PlayerEquipment))]
+    [RequireComponent(typeof(PlayerCombat))]
+    [RequireComponent(typeof(PlayerSkills))]
+    [RequireComponent(typeof(PlayerAnimation))]
     public class PlayerController : NetworkBehaviour
     {
-        [Header("SyncVars")]
-        [SyncVar(hook = nameof(OnNameChanged))] public string CharacterName;
+        [SyncVar] public long CharacterId;
+        [SyncVar] public long AccountId;
+        [SyncVar] public string CharacterName;
         [SyncVar] public byte Job;
         [SyncVar] public int Level;
         [SyncVar] public int CurrentHp;
         [SyncVar] public int CurrentMp;
         [SyncVar] public int CurrentSp;
 
-        [Header("References")]
-        [SerializeField] private NavMeshAgent agent;
-        [SerializeField] private Animator animator;
+        [Header("Components")]
+        public PlayerMovement Movement;
+        public PlayerStats Stats;
+        public PlayerInventory Inventory;
+        public PlayerEquipment Equipment;
+        public PlayerCombat Combat;
+        public PlayerSkills Skills;
+        public PlayerAnimation Animation;
+        public PlayerConsumables Consumables;
 
-        [System.NonSerialized] public long CharacterId;
-        [System.NonSerialized] public long AccountId;
-        [System.NonSerialized] public ulong Exp;
-        [System.NonSerialized] public int BaseStr, BaseAgi, BaseCon, BaseSpr;
-        [System.NonSerialized] public int MaxHp, MaxMp, MaxSp;
-        [System.NonSerialized] public ulong Gold;
-        [System.NonSerialized] public string MapName;
-        [System.NonSerialized] public float RotationY;
-        [System.NonSerialized] public byte Gender;
-        [System.NonSerialized] public byte HairStyle, HairColor, FaceStyle;
-
-        private readonly SyncList<ItemSyncData> _inventory = new SyncList<ItemSyncData>();
-        private readonly SyncList<SkillSyncData> _skills = new SyncList<SkillSyncData>();
-        private readonly SyncList<EquipmentSyncData> _equipment = new SyncList<EquipmentSyncData>();
-
-        private float _nextSaveTime;
-        private const float SAVE_INTERVAL = 60f;
-        private bool _initialized;
-        private bool _isSaving;
-
-        public event System.Action OnInventoryChanged;
-        public event System.Action OnSkillsChanged;
-        public event System.Action OnEquipmentChanged;
-        public event System.Action<string> OnNameChangedEvent;
+        [Header("Settings")]
+        [SerializeField] private float autoSaveInterval = 60f;
+        private float _lastSaveTime;
 
         void Awake()
         {
-            if (agent == null) agent = GetComponent<NavMeshAgent>();
-            if (animator == null) animator = GetComponent<Animator>();
+            Movement = GetComponent<PlayerMovement>();
+            Stats = GetComponent<PlayerStats>();
+            Inventory = GetComponent<PlayerInventory>();
+            Equipment = GetComponent<PlayerEquipment>();
+            Combat = GetComponent<PlayerCombat>();
+            Skills = GetComponent<PlayerSkills>();
+            Animation = GetComponent<PlayerAnimation>();
+            Consumables = GetComponent<PlayerConsumables>();
         }
 
-        public override void OnStartClient()
+        public override void OnStartLocalPlayer()
         {
-            base.OnStartClient();
-            _inventory.Callback += OnInventoryUpdated;
-            _skills.Callback += OnSkillsUpdated;
-            _equipment.Callback += OnEquipmentUpdated;
+            base.OnStartLocalPlayer();
+
+            CameraFollow camFollow = Camera.main?.GetComponent<CameraFollow>();
+            if (camFollow != null)
+                camFollow.SetTarget(transform);
+
+            UIManager uiManager = FindObjectOfType<UIManager>();
+            if (uiManager != null)
+                uiManager.SetupLocalPlayer(this);
+        }
+
+        public override void OnStartServer()
+        {
+            base.OnStartServer();
+        }
+
+        public override void OnStopServer()
+        {
+            base.OnStopServer();
+            SaveToDatabase();
         }
 
         void Update()
         {
-            if (!isServer) return;
-
-            if (Time.time >= _nextSaveTime && !_isSaving)
+            if (isServer && Time.time > _lastSaveTime + autoSaveInterval)
             {
+                _lastSaveTime = Time.time;
                 SaveToDatabase();
-                _nextSaveTime = Time.time + SAVE_INTERVAL;
-            }
-
-            if (animator != null && agent != null)
-            {
-                float speed = agent.velocity.magnitude / agent.speed;
-                animator.SetFloat("Speed", speed);
             }
         }
 
-        [Server]
         public void InitializeFromDatabase(CharacterData data)
         {
             CharacterId = data.Id;
             AccountId = data.AccountId;
             CharacterName = data.Name;
             Job = data.Job;
-            Gender = data.Gender;
-            HairStyle = data.HairStyle;
-            HairColor = data.HairColor;
-            FaceStyle = data.FaceStyle;
-
             Level = data.Level;
-            Exp = data.Exp;
-
-            BaseStr = data.BaseStr;
-            BaseAgi = data.BaseAgi;
-            BaseCon = data.BaseCon;
-            BaseSpr = data.BaseSpr;
-
-            MaxHp = data.MaxHp;
-            MaxMp = data.MaxMp;
-            MaxSp = data.MaxSp;
             CurrentHp = data.CurrentHp;
             CurrentMp = data.CurrentMp;
             CurrentSp = data.CurrentSp;
 
-            Gold = data.Gold;
-            MapName = data.MapName;
-            RotationY = data.RotationY;
-
-            transform.position = new Vector3(data.PosX, data.PosY, data.PosZ);
-            transform.rotation = Quaternion.Euler(0, data.RotationY, 0);
-
-            _inventory.Clear();
-            foreach (var item in data.Inventory)
+            if (Stats != null)
             {
-                _inventory.Add(new ItemSyncData
+                Stats.Initialize(data.BaseStr, data.BaseAgi, data.BaseCon, data.BaseSpr,
+                    data.MaxHp, data.MaxMp, data.MaxSp);
+                Stats.SetCurrentHpMpSp(data.CurrentHp, data.CurrentMp, data.CurrentSp);
+            }
+
+            if (Inventory != null && data.Inventory != null)
+            {
+                foreach (InventoryItemData item in data.Inventory)
                 {
-                    DbId = item.Id,
-                    SlotIndex = item.SlotIndex,
-                    ItemId = item.ItemId,
-                    Quantity = item.Quantity,
-                    Durability = item.Durability,
-                    IsEquipped = item.IsEquipped
-                });
-            }
-
-            _skills.Clear();
-            foreach (var skill in data.Skills)
-            {
-                _skills.Add(new SkillSyncData
-                {
-                    SkillId = skill.SkillId,
-                    Level = skill.Level,
-                    Exp = skill.Exp
-                });
-            }
-
-            _equipment.Clear();
-
-            _initialized = true;
-            _nextSaveTime = Time.time + SAVE_INTERVAL;
-
-            Debug.Log($"[PlayerController] {CharacterName} inicializado. HP:{CurrentHp}/{MaxHp} Pos:{transform.position} Map:{MapName}");
-        }
-
-        [Command]
-        public void CmdMoveTo(Vector3 destination)
-        {
-            if (!_initialized || CurrentHp <= 0) return;
-
-            float distance = Vector3.Distance(transform.position, destination);
-            if (distance > 50f)
-            {
-                LogSecurityEvent($"Teleport hack detectado: {distance:F1}m");
-                return;
-            }
-
-            if (agent != null && agent.isActiveAndEnabled)
-            {
-                agent.SetDestination(destination);
-            }
-        }
-
-        [Command]
-        public void CmdStopMovement()
-        {
-            if (agent != null && agent.isActiveAndEnabled)
-            {
-                agent.ResetPath();
-            }
-        }
-
-        [Command]
-        public void CmdMoveItem(ushort fromSlot, ushort toSlot)
-        {
-            if (!_initialized) return;
-            if (fromSlot == toSlot) return;
-            if (fromSlot > 47 || toSlot > 47) return;
-
-            var fromItem = FindItemInSlot(fromSlot);
-            if (!fromItem.HasValue) return;
-
-            if (fromItem.Value.IsEquipped)
-            {
-                LogSecurityEvent($"Tentou mover item equipado slot {fromSlot}");
-                return;
-            }
-
-            var toItem = FindItemInSlot(toSlot);
-
-            if (!toItem.HasValue)
-            {
-                UpdateItemSlot(fromItem.Value.DbId, toSlot);
-            }
-            else if (fromItem.Value.ItemId == toItem.Value.ItemId && ItemDatabase.Instance.IsStackable(fromItem.Value.ItemId))
-            {
-                int maxStack = ItemDatabase.Instance.GetMaxStack(fromItem.Value.ItemId);
-                int total = fromItem.Value.Quantity + toItem.Value.Quantity;
-
-                if (total <= maxStack)
-                {
-                    UpdateItemQuantity(toItem.Value.DbId, total);
-                    RemoveItem(fromItem.Value.DbId);
-                }
-                else
-                {
-                    UpdateItemQuantity(toItem.Value.DbId, maxStack);
-                    UpdateItemQuantity(fromItem.Value.DbId, total - maxStack);
+                    Inventory.AddItem(item.ItemId, item.Quantity, item.SlotIndex);
                 }
             }
-            else
+
+            if (Skills != null && data.Skills != null)
             {
-                UpdateItemSlot(fromItem.Value.DbId, toSlot);
-                UpdateItemSlot(toItem.Value.DbId, fromSlot);
+                foreach (CharacterSkillData skill in data.Skills)
+                {
+                    Skills.LearnSkill(skill.SkillId, skill.Level);
+                }
             }
-        }
-
-        [Command]
-        public void CmdDropItem(ushort slotIndex, int quantity)
-        {
-            if (!_initialized || CurrentHp <= 0) return;
-
-            var item = FindItemInSlot(slotIndex);
-            if (!item.HasValue) return;
-            if (item.Value.IsEquipped) return;
-            if (quantity <= 0 || quantity > item.Value.Quantity) return;
-
-            if (quantity >= item.Value.Quantity)
-            {
-                RemoveItem(item.Value.DbId);
-            }
-            else
-            {
-                UpdateItemQuantity(item.Value.DbId, item.Value.Quantity - quantity);
-            }
-
-            SaveToDatabase();
-        }
-
-        [Command]
-        public void CmdEquipItem(ushort slotIndex)
-        {
-            if (!_initialized || CurrentHp <= 0) return;
-
-            var item = FindItemInSlot(slotIndex);
-            if (!item.HasValue || item.Value.IsEquipped) return;
-
-            byte equipSlot = ItemDatabase.Instance.GetEquipSlot(item.Value.ItemId);
-            if (equipSlot == 255) return;
-
-            var equipped = FindEquippedItem(equipSlot);
-            if (equipped.HasValue)
-            {
-                SetItemEquipped(equipped.Value.DbId, false);
-            }
-
-            SetItemEquipped(item.Value.DbId, true);
-            RecalculateStats();
-            SaveToDatabase();
-        }
-
-        [Command]
-        public void CmdUnequipItem(byte equipSlot)
-        {
-            if (!_initialized) return;
-
-            var item = FindEquippedItem(equipSlot);
-            if (!item.HasValue) return;
-
-            ushort emptySlot = FindEmptySlot();
-            if (emptySlot == 65535)
-            {
-                TargetRpcShowMessage("Inventário cheio!");
-                return;
-            }
-
-            SetItemEquipped(item.Value.DbId, false);
-            UpdateItemSlot(item.Value.DbId, emptySlot);
-
-            RecalculateStats();
-            SaveToDatabase();
         }
 
         [Server]
         public void SaveToDatabase()
         {
-            if (_isSaving || !_initialized) return;
-            _isSaving = true;
+            if (Stats == null) return;
 
-            var data = new CharacterData
+            CharacterData data = new CharacterData
             {
                 Id = CharacterId,
                 AccountId = AccountId,
                 Name = CharacterName,
                 Job = Job,
-                Gender = Gender,
-                HairStyle = HairStyle,
-                HairColor = HairColor,
-                FaceStyle = FaceStyle,
                 Level = Level,
-                Exp = Exp,
-                BaseStr = BaseStr,
-                BaseAgi = BaseAgi,
-                BaseCon = BaseCon,
-                BaseSpr = BaseSpr,
-                MaxHp = MaxHp,
-                MaxMp = MaxMp,
-                MaxSp = MaxSp,
-                CurrentHp = CurrentHp,
-                CurrentMp = CurrentMp,
-                CurrentSp = CurrentSp,
-                Gold = Gold,
-                MapName = MapName,
+                CurrentHp = Stats.CurrentHp,
+                CurrentMp = Stats.CurrentMp,
+                CurrentSp = Stats.CurrentSp,
                 PosX = transform.position.x,
                 PosY = transform.position.y,
                 PosZ = transform.position.z,
                 RotationY = transform.rotation.eulerAngles.y,
-                LastOnline = DateTime.Now
+                BaseStr = Stats.BaseStrength,
+                BaseAgi = Stats.BaseAgility,
+                BaseCon = Stats.BaseConstitution,
+                BaseSpr = Stats.BaseSpirit,
+                MaxHp = Stats.MaxHp,
+                MaxMp = Stats.MaxMp,
+                MaxSp = Stats.MaxSp
             };
 
-            data.Inventory.Clear();
-            foreach (var item in _inventory)
-            {
-                data.Inventory.Add(new InventoryItemData
-                {
-                    Id = item.DbId,
-                    CharacterId = CharacterId,
-                    SlotIndex = item.SlotIndex,
-                    ItemId = item.ItemId,
-                    Quantity = item.Quantity,
-                    Durability = item.Durability,
-                    IsEquipped = item.IsEquipped
-                });
-            }
-
-            data.Skills.Clear();
-            foreach (var skill in _skills)
-            {
-                data.Skills.Add(new CharacterSkillData
-                {
-                    CharacterId = CharacterId,
-                    SkillId = skill.SkillId,
-                    Level = skill.Level,
-                    Exp = skill.Exp
-                });
-            }
-
-            DatabaseService.Instance.SaveCharacterAsync(data).ContinueWith(_ =>
-            {
-                _isSaving = false;
-                Debug.Log($"[Save] {CharacterName} salvo em {transform.position}");
-            });
+            _ = TOP.Services.DatabaseService.Instance.SaveCharacterAsync(data);
         }
 
-        ItemSyncData? FindItemInSlot(ushort slot)
+        [Command]
+        public void CmdMoveTo(Vector3 destination)
         {
-            for (int i = 0; i < _inventory.Count; i++)
-            {
-                if (_inventory[i].SlotIndex == slot && !_inventory[i].IsEquipped)
-                    return _inventory[i];
-            }
-            return null;
+            if (Movement != null)
+                Movement.SetDestination(destination);
         }
 
-        ItemSyncData? FindEquippedItem(byte equipSlot)
+        [Command]
+        public void CmdAttackTarget(NetworkIdentity target)
         {
-            for (int i = 0; i < _inventory.Count; i++)
-            {
-                if (_inventory[i].IsEquipped && ItemDatabase.Instance.GetEquipSlot(_inventory[i].ItemId) == equipSlot)
-                    return _inventory[i];
-            }
-            return null;
+            if (Combat != null && target != null)
+                Combat.AttackTarget(target);
         }
 
-        ushort FindEmptySlot()
+        [Command]
+        public void CmdUseSkill(int skillId, Vector3 targetPosition, NetworkIdentity target)
         {
-            bool[] used = new bool[48];
-            foreach (var item in _inventory)
-            {
-                if (!item.IsEquipped && item.SlotIndex < 48)
-                    used[item.SlotIndex] = true;
-            }
-            for (ushort i = 0; i < 48; i++)
-            {
-                if (!used[i]) return i;
-            }
-            return 65535;
+            if (Skills != null)
+                Skills.UseSkill(skillId, targetPosition, target);
         }
 
-        void UpdateItemSlot(long dbId, ushort newSlot)
+        [Command]
+        public void CmdSetTarget(NetworkIdentity target)
         {
-            for (int i = 0; i < _inventory.Count; i++)
-            {
-                if (_inventory[i].DbId == dbId)
-                {
-                    var updated = _inventory[i];
-                    updated.SlotIndex = newSlot;
-                    _inventory[i] = updated;
-                    return;
-                }
-            }
+            if (Combat != null)
+                Combat.SetTarget(target);
         }
 
-        void UpdateItemQuantity(long dbId, int newQty)
+        [ClientRpc]
+        public void RpcTakeDamage(int damage, Vector3 hitPosition)
         {
-            for (int i = 0; i < _inventory.Count; i++)
-            {
-                if (_inventory[i].DbId == dbId)
-                {
-                    if (newQty <= 0)
-                    {
-                        _inventory.RemoveAt(i);
-                    }
-                    else
-                    {
-                        var updated = _inventory[i];
-                        updated.Quantity = newQty;
-                        _inventory[i] = updated;
-                    }
-                    return;
-                }
-            }
+            DamagePopupManager popupManager = FindObjectOfType<DamagePopupManager>();
+            if (popupManager != null)
+                popupManager.ShowDamage(damage, hitPosition, false);
+
+            HitFlashEffect hitFlash = GetComponentInChildren<HitFlashEffect>();
+            if (hitFlash != null)
+                hitFlash.Flash();
         }
 
-        void RemoveItem(long dbId)
+        [ClientRpc]
+        public void RpcHeal(int amount)
         {
-            for (int i = 0; i < _inventory.Count; i++)
-            {
-                if (_inventory[i].DbId == dbId)
-                {
-                    _inventory.RemoveAt(i);
-                    return;
-                }
-            }
+            DamagePopupManager popupManager = FindObjectOfType<DamagePopupManager>();
+            if (popupManager != null)
+                popupManager.ShowHeal(amount, transform.position + Vector3.up * 2f);
         }
 
-        void SetItemEquipped(long dbId, bool equipped)
+        [ClientRpc]
+        public void RpcLevelUp()
         {
-            for (int i = 0; i < _inventory.Count; i++)
-            {
-                if (_inventory[i].DbId == dbId)
-                {
-                    var updated = _inventory[i];
-                    updated.IsEquipped = equipped;
-                    _inventory[i] = updated;
-                    return;
-                }
-            }
+            Level++;
+            LevelUpEffectManager effectManager = FindObjectOfType<LevelUpEffectManager>();
+            if (effectManager != null)
+                effectManager.PlayLevelUpEffect(transform.position);
         }
 
-        void RecalculateStats()
+        [ClientRpc]
+        public void RpcShowMessage(string message, PlayerMessageType type)
         {
-            int bonusStr = 0, bonusAgi = 0, bonusCon = 0, bonusSpr = 0;
-
-            foreach (var item in _inventory)
-            {
-                if (item.IsEquipped)
-                {
-                    var stats = ItemDatabase.Instance.GetItemStats(item.ItemId);
-                    bonusStr += stats.Str;
-                    bonusAgi += stats.Agi;
-                    bonusCon += stats.Con;
-                    bonusSpr += stats.Spr;
-                }
-            }
-
-            MaxHp = CalculateMaxHp(BaseCon + bonusCon, Level);
-            MaxMp = CalculateMaxMp(BaseSpr + bonusSpr, Level);
-            MaxSp = CalculateMaxSp(BaseStr + bonusStr, Level);
-
-            CurrentHp = Mathf.Min(CurrentHp, MaxHp);
-            CurrentMp = Mathf.Min(CurrentMp, MaxMp);
-            CurrentSp = Mathf.Min(CurrentSp, MaxSp);
+            UIManager uiManager = FindObjectOfType<UIManager>();
+            if (uiManager != null)
+                uiManager.ShowMessage(message, type);
         }
 
-        int CalculateMaxHp(int totalCon, int level) => 100 + (totalCon * 10) + (level * 5);
-        int CalculateMaxMp(int totalSpr, int level) => 50 + (totalSpr * 8) + (level * 3);
-        int CalculateMaxSp(int totalStr, int level) => 100 + (totalStr * 5) + (level * 2);
-
-        void LogSecurityEvent(string message)
+        [Server]
+        public void Die()
         {
-            Debug.LogWarning($"[SECURITY] {CharacterName}: {message}");
+            RpcDie();
+            Invoke(nameof(RespawnPlayer), 5f);
         }
 
-        void OnInventoryUpdated(SyncList<ItemSyncData>.Operation op, int itemIndex,
-            ItemSyncData oldItem, ItemSyncData newItem)
+        [ClientRpc]
+        void RpcDie()
         {
-            OnInventoryChanged?.Invoke();
+            Animation.PlayDeath();
+            Movement.enabled = false;
+            Combat.enabled = false;
         }
 
-        void OnSkillsUpdated(SyncList<SkillSyncData>.Operation op, int itemIndex,
-            SkillSyncData oldItem, SkillSyncData newItem)
+        [Server]
+        void RespawnPlayer()
         {
-            OnSkillsChanged?.Invoke();
+            CurrentHp = Stats.MaxHp;
+            CurrentMp = Stats.MaxMp;
+            CurrentSp = Stats.MaxSp;
+
+            transform.position = Vector3.zero + Vector3.up;
+
+            RpcRespawn();
         }
 
-        void OnEquipmentUpdated(SyncList<EquipmentSyncData>.Operation op, int itemIndex,
-            EquipmentSyncData oldItem, EquipmentSyncData newItem)
+        [ClientRpc]
+        void RpcRespawn()
         {
-            OnEquipmentChanged?.Invoke();
-        }
-
-        void OnNameChanged(string oldName, string newName)
-        {
-            OnNameChangedEvent?.Invoke(newName);
-        }
-
-        [TargetRpc]
-        void TargetRpcShowMessage(string message)
-        {
-            Debug.Log($"[Server Message] {message}");
+            Animation.PlayRespawn();
+            Movement.enabled = true;
+            Combat.enabled = true;
         }
 
         void OnDestroy()
         {
-            if (isServer && _initialized)
+            if (isServer)
             {
                 SaveToDatabase();
-                Debug.Log($"[PlayerController] {CharacterName} destruído. Save final executado.");
             }
         }
+    }
+
+    public enum PlayerMessageType
+    {
+        Info, Warning, Error, Success
     }
 }

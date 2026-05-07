@@ -1,4 +1,3 @@
-// Assets/Scripts/Network/TOPNetworkManager.cs
 using Mirror;
 using System;
 using System.Collections.Generic;
@@ -7,6 +6,8 @@ using UnityEngine.SceneManagement;
 using TOP.Services;
 using TOP.Data;
 using TOP.Gameplay;
+using TOP.Core;
+using TOP.Network;
 
 namespace TOP.Network
 {
@@ -14,12 +15,14 @@ namespace TOP.Network
     {
         public static TOPNetworkManager Instance { get; private set; }
 
-        [Header("Tales of Pirate - Config")]
+        [Header("Tales of Pirates - Config")]
         [SerializeField] private float autoSaveInterval = 60f;
         [SerializeField] private string serverInstanceId = "server_01";
 
-        [Header("Prefabs")]
-        [SerializeField] private GameObject[] characterPreviewPrefabs;
+        [Header("Scenes")]
+        [SerializeField] private string loginScene = "LoginScene";
+        [SerializeField] private string characterSelectScene = "CharacterSelectScene";
+        [SerializeField] private string gameScene = "GameScene";
 
         private readonly Dictionary<int, PlayerConnection> _connections = new Dictionary<int, PlayerConnection>();
         private readonly Dictionary<long, NetworkConnectionToClient> _accountConnections = new Dictionary<long, NetworkConnectionToClient>();
@@ -46,7 +49,13 @@ namespace TOP.Network
             NetworkServer.RegisterHandler<CharacterListRequest>(OnCharacterListRequest);
             NetworkServer.RegisterHandler<CreateCharacterRequest>(OnCreateCharacterRequest);
             NetworkServer.RegisterHandler<SelectCharacterRequest>(OnSelectCharacterRequest);
+            NetworkServer.RegisterHandler<DeleteCharacterRequest>(OnDeleteCharacterRequest);
             NetworkServer.RegisterHandler<ClientPing>(OnClientPing);
+            NetworkServer.RegisterHandler<MoveItemRequest>(OnMoveItemRequest);
+            NetworkServer.RegisterHandler<EquipItemRequest>(OnEquipItemRequest);
+            NetworkServer.RegisterHandler<DropItemRequest>(OnDropItemRequest);
+            NetworkServer.RegisterHandler<UseItemRequest>(OnUseItemRequest);
+            NetworkServer.RegisterHandler<ChatMessage>(OnChatMessage);
 
             InvokeRepeating(nameof(AutoSaveAll), autoSaveInterval, autoSaveInterval);
         }
@@ -57,11 +66,11 @@ namespace TOP.Network
             CancelInvoke();
 
             Debug.Log("[TOPNetworkManager] Servidor fechando - salvando todos...");
-            foreach (var conn in _connections.Values)
+            foreach (PlayerConnection playerConn in _connections.Values)
             {
-                if (conn.State == ConnectionState.InGame && conn.PlayerController != null)
+                if (playerConn.State == ConnectionState.InGame && playerConn.PlayerController != null)
                 {
-                    _ = SavePlayerAsync(conn);
+                    _ = SavePlayerAsync(playerConn);
                 }
             }
         }
@@ -70,12 +79,13 @@ namespace TOP.Network
         {
             base.OnServerConnect(conn);
 
-            var playerConn = new PlayerConnection
+            PlayerConnection playerConn = new PlayerConnection
             {
                 ConnectionId = conn.connectionId,
                 State = ConnectionState.Login,
                 Connection = conn,
-                RateLimiter = new RateLimiter(50, 1f)
+                RateLimiter = new RateLimiter(50, 1f),
+                ConnectTime = Time.time
             };
 
             _connections[conn.connectionId] = playerConn;
@@ -86,9 +96,9 @@ namespace TOP.Network
 
         public override void OnServerDisconnect(NetworkConnectionToClient conn)
         {
-            if (_connections.TryGetValue(conn.connectionId, out var playerConn))
+            if (_connections.TryGetValue(conn.connectionId, out PlayerConnection playerConn))
             {
-                if (playerConn.State == ConnectionState.InGame && conn.PlayerController != null)
+                if (playerConn.State == ConnectionState.InGame && conn.identity != null)
                 {
                     _ = SaveAndDisconnectAsync(playerConn);
                 }
@@ -110,7 +120,7 @@ namespace TOP.Network
 
         bool CheckRateLimit(int connectionId)
         {
-            if (_rateLimiters.TryGetValue(connectionId, out var limiter))
+            if (_rateLimiters.TryGetValue(connectionId, out RateLimiter limiter))
                 return limiter.CanProcess();
             return true;
         }
@@ -123,7 +133,7 @@ namespace TOP.Network
                 return;
             }
 
-            if (!_connections.TryGetValue(conn.connectionId, out var playerConn))
+            if (!_connections.TryGetValue(conn.connectionId, out PlayerConnection playerConn))
                 return;
 
             if (playerConn.State != ConnectionState.Login)
@@ -165,7 +175,7 @@ namespace TOP.Network
         {
             if (!CheckRateLimit(conn.connectionId)) return;
 
-            if (!_connections.TryGetValue(conn.connectionId, out var playerConn))
+            if (!_connections.TryGetValue(conn.connectionId, out PlayerConnection playerConn))
                 return;
 
             if (playerConn.State != ConnectionState.CharacterSelect)
@@ -174,7 +184,7 @@ namespace TOP.Network
                 return;
             }
 
-            var characters = await DatabaseService.Instance.GetCharacterListAsync(playerConn.AccountId);
+            List<CharacterPreviewData> characters = await DatabaseService.Instance.GetCharacterListAsync(playerConn.AccountId);
 
             conn.Send(new CharacterListResponse
             {
@@ -187,7 +197,7 @@ namespace TOP.Network
         {
             if (!CheckRateLimit(conn.connectionId)) return;
 
-            if (!_connections.TryGetValue(conn.connectionId, out var playerConn))
+            if (!_connections.TryGetValue(conn.connectionId, out PlayerConnection playerConn))
                 return;
 
             if (playerConn.State != ConnectionState.CharacterSelect)
@@ -223,11 +233,28 @@ namespace TOP.Network
                 Debug.Log($"[CharCreate] {playerConn.Username} criou '{msg.Name}'");
         }
 
+        async void OnDeleteCharacterRequest(NetworkConnectionToClient conn, DeleteCharacterRequest msg)
+        {
+            if (!CheckRateLimit(conn.connectionId)) return;
+
+            if (!_connections.TryGetValue(conn.connectionId, out PlayerConnection playerConn))
+                return;
+
+            bool success = await DatabaseService.Instance.DeleteCharacterAsync(
+                msg.CharacterId, playerConn.AccountId, msg.Password);
+
+            conn.Send(new DeleteCharacterResponse
+            {
+                Success = success,
+                Error = success ? null : "DELETE_FAILED"
+            });
+        }
+
         async void OnSelectCharacterRequest(NetworkConnectionToClient conn, SelectCharacterRequest msg)
         {
             if (!CheckRateLimit(conn.connectionId)) return;
 
-            if (!_connections.TryGetValue(conn.connectionId, out var playerConn))
+            if (!_connections.TryGetValue(conn.connectionId, out PlayerConnection playerConn))
                 return;
 
             if (playerConn.State != ConnectionState.CharacterSelect)
@@ -236,7 +263,7 @@ namespace TOP.Network
                 return;
             }
 
-            var charData = await DatabaseService.Instance.LoadCharacterAsync(
+            CharacterData charData = await DatabaseService.Instance.LoadCharacterAsync(
                 msg.CharacterId, playerConn.AccountId);
 
             if (charData == null)
@@ -250,7 +277,7 @@ namespace TOP.Network
 
             GameObject playerObj = Instantiate(playerPrefab);
 
-            var controller = playerObj.GetComponent<PlayerController>();
+            PlayerController controller = playerObj.GetComponent<PlayerController>();
             if (controller == null)
             {
                 Debug.LogError("[TOPNetworkManager] PlayerPrefab sem PlayerController!");
@@ -285,9 +312,69 @@ namespace TOP.Network
             Debug.Log($"[EnterWorld] {charData.Name} entrou em {charData.MapName}");
         }
 
+        void OnMoveItemRequest(NetworkConnectionToClient conn, MoveItemRequest msg)
+        {
+            if (!CheckRateLimit(conn.connectionId)) return;
+            if (conn.identity == null) return;
+
+            PlayerInventory inv = conn.identity.GetComponent<PlayerInventory>();
+            if (inv != null)
+            {
+                inv.CmdMoveItem(msg.FromSlot, msg.ToSlot);
+            }
+        }
+
+        void OnEquipItemRequest(NetworkConnectionToClient conn, EquipItemRequest msg)
+        {
+            if (!CheckRateLimit(conn.connectionId)) return;
+            if (conn.identity == null) return;
+
+            PlayerEquipment equip = conn.identity.GetComponent<PlayerEquipment>();
+            if (equip != null)
+            {
+                equip.CmdEquipItem(msg.InventorySlot, msg.TargetSlot);
+            }
+        }
+
+        void OnDropItemRequest(NetworkConnectionToClient conn, DropItemRequest msg)
+        {
+            if (!CheckRateLimit(conn.connectionId)) return;
+            if (conn.identity == null) return;
+
+            PlayerInventory inv = conn.identity.GetComponent<PlayerInventory>();
+            if (inv != null)
+            {
+                inv.CmdDropItem(msg.SlotIndex, msg.Quantity, msg.DropPosition);
+            }
+        }
+
+        void OnUseItemRequest(NetworkConnectionToClient conn, UseItemRequest msg)
+        {
+            if (!CheckRateLimit(conn.connectionId)) return;
+            if (conn.identity == null) return;
+
+            PlayerConsumables consumables = conn.identity.GetComponent<PlayerConsumables>();
+            if (consumables != null)
+            {
+                consumables.CmdUseItem(msg.SlotIndex);
+            }
+        }
+
+        void OnChatMessage(NetworkConnectionToClient conn, ChatMessage msg)
+        {
+            if (!CheckRateLimit(conn.connectionId)) return;
+            if (string.IsNullOrWhiteSpace(msg.Text) || msg.Text.Length > 200) return;
+
+            NetworkServer.SendToAll(new ChatMessage
+            {
+                Channel = ChatChannel.World,
+                Text = msg.Text
+            });
+        }
+
         async void AutoSaveAll()
         {
-            foreach (var conn in _connections.Values)
+            foreach (PlayerConnection conn in _connections.Values)
             {
                 if (conn.State == ConnectionState.InGame && conn.PlayerController != null)
                 {
@@ -297,103 +384,61 @@ namespace TOP.Network
             }
         }
 
-        async System.Threading.Tasks.Task SavePlayerAsync(PlayerConnection conn)
+        async System.Threading.Tasks.Task SavePlayerAsync(PlayerConnection playerConn)
         {
-            if (conn?.PlayerController == null) return;
+            if (playerConn?.PlayerController == null) return;
 
-            var data = new CharacterData
+            CharacterData data = new CharacterData
             {
-                Id = conn.PlayerController.CharacterId,
-                AccountId = conn.PlayerController.AccountId,
-                Name = conn.PlayerController.CharacterName,
-                Job = conn.PlayerController.Job,
-                Level = conn.PlayerController.Level,
-                CurrentHp = conn.PlayerController.CurrentHp,
-                CurrentMp = conn.PlayerController.CurrentMp,
-                CurrentSp = conn.PlayerController.CurrentSp,
-                PosX = conn.PlayerController.transform.position.x,
-                PosY = conn.PlayerController.transform.position.y,
-                PosZ = conn.PlayerController.transform.position.z,
-                RotationY = conn.PlayerController.transform.rotation.eulerAngles.y
+                Id = playerConn.PlayerController.CharacterId,
+                AccountId = playerConn.PlayerController.AccountId,
+                Name = playerConn.PlayerController.CharacterName,
+                Job = playerConn.PlayerController.Job,
+                Level = playerConn.PlayerController.Level,
+                CurrentHp = playerConn.PlayerController.CurrentHp,
+                CurrentMp = playerConn.PlayerController.CurrentMp,
+                CurrentSp = playerConn.PlayerController.CurrentSp,
+                PosX = playerConn.PlayerController.transform.position.x,
+                PosY = playerConn.PlayerController.transform.position.y,
+                PosZ = playerConn.PlayerController.transform.position.z,
+                RotationY = playerConn.PlayerController.transform.rotation.eulerAngles.y
             };
 
             await DatabaseService.Instance.SaveCharacterAsync(data);
         }
 
-        async System.Threading.Tasks.Task SaveAndDisconnectAsync(PlayerConnection conn)
+        async System.Threading.Tasks.Task SaveAndDisconnectAsync(PlayerConnection playerConn)
         {
-            if (conn?.PlayerController != null)
+            if (playerConn?.PlayerController != null)
             {
-                var data = new CharacterData
+                CharacterData data = new CharacterData
                 {
-                    Id = conn.PlayerController.CharacterId,
-                    AccountId = conn.PlayerController.AccountId,
-                    Name = conn.PlayerController.CharacterName,
-                    PosX = conn.PlayerController.transform.position.x,
-                    PosY = conn.PlayerController.transform.position.y,
-                    PosZ = conn.PlayerController.transform.position.z,
-                    RotationY = conn.PlayerController.transform.rotation.eulerAngles.y
+                    Id = playerConn.PlayerController.CharacterId,
+                    AccountId = playerConn.PlayerController.AccountId,
+                    Name = playerConn.PlayerController.CharacterName,
+                    PosX = playerConn.PlayerController.transform.position.x,
+                    PosY = playerConn.PlayerController.transform.position.y,
+                    PosZ = playerConn.PlayerController.transform.position.z,
+                    RotationY = playerConn.PlayerController.transform.rotation.eulerAngles.y
                 };
                 await DatabaseService.Instance.SaveCharacterAsync(data);
             }
 
-            _accountConnections.Remove(conn.AccountId);
+            _accountConnections.Remove(playerConn.AccountId);
         }
 
         void OnClientPing(NetworkConnectionToClient conn, ClientPing msg)
         {
-            if (_connections.TryGetValue(conn.connectionId, out var playerConn))
+            if (_connections.TryGetValue(conn.connectionId, out PlayerConnection playerConn))
                 playerConn.LastPingTime = Time.time;
+
+            conn.Send(new ServerPong
+            {
+                ClientTime = msg.ClientTime,
+                ServerTime = Time.time
+            });
         }
 
         public bool IsAccountOnline(long accountId) => _accountConnections.ContainsKey(accountId);
-    }
-
-    public enum ConnectionState
-    {
-        Login,
-        CharacterSelect,
-        InGame
-    }
-
-    public class PlayerConnection
-    {
-        public int ConnectionId;
-        public ConnectionState State;
-        public long AccountId;
-        public long CharacterId;
-        public string Username;
-        public string SessionToken;
-        public NetworkConnectionToClient Connection;
-        public PlayerController PlayerController;
-        public RateLimiter RateLimiter;
-        public float LastPingTime;
-        public float ConnectTime;
-    }
-
-    public class RateLimiter
-    {
-        private readonly Queue<float> _timestamps = new Queue<float>();
-        private readonly int _maxRequests;
-        private readonly float _timeWindow;
-
-        public RateLimiter(int maxRequests, float timeWindow)
-        {
-            _maxRequests = maxRequests;
-            _timeWindow = timeWindow;
-        }
-
-        public bool CanProcess()
-        {
-            float now = Time.time;
-            while (_timestamps.Count > 0 && _timestamps.Peek() < now - _timeWindow)
-                _timestamps.Dequeue();
-
-            if (_timestamps.Count >= _maxRequests)
-                return false;
-
-            _timestamps.Enqueue(now);
-            return true;
-        }
     }
 }

@@ -1,4 +1,3 @@
-// Assets/Scripts/Data/CharacterData.cs
 using System;
 using System.Collections.Generic;
 
@@ -15,36 +14,36 @@ namespace TOP.Data
         public byte HairStyle;
         public byte HairColor;
         public byte FaceStyle;
-        
+
         public int Level;
         public ulong Exp;
-        
+
         public int BaseStr;
         public int BaseAgi;
         public int BaseCon;
         public int BaseSpr;
-        
+
         public int MaxHp;
         public int MaxMp;
         public int MaxSp;
         public int CurrentHp;
         public int CurrentMp;
         public int CurrentSp;
-        
+
         public ulong Gold;
         public string MapName;
         public float PosX, PosY, PosZ;
         public float RotationY;
-        
+
         public DateTime CreatedAt;
         public DateTime LastOnline;
         public bool IsDeleted;
         public bool IsOnline;
-        
+
         public List<InventoryItemData> Inventory = new List<InventoryItemData>();
         public List<CharacterSkillData> Skills = new List<CharacterSkillData>();
     }
-    
+
     [Serializable]
     public class InventoryItemData
     {
@@ -56,7 +55,7 @@ namespace TOP.Data
         public ushort Durability;
         public bool IsEquipped;
     }
-    
+
     [Serializable]
     public class CharacterSkillData
     {

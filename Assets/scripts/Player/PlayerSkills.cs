@@ -1,411 +1,161 @@
 using UnityEngine;
 using Mirror;
-using System;
 using System.Collections.Generic;
+using TOP.Core;
+using TOP.Database;
 
-public class PlayerSkills : NetworkBehaviour
+namespace TOP.Player
 {
-    [Header("Skill Settings")]
-    [SerializeField] private List<PlayerSkillData> skills = new List<PlayerSkillData>();
-    [SerializeField] private float globalCooldown = 0.5f;
-
-    [Header("Debug")]
-    [SerializeField] private bool showSkillDebugLogs = true;
-
-    private float lastSkillTime;
-    private Dictionary<int, float> skillCooldowns = new Dictionary<int, float>();
-    private PlayerStats playerStats;
-
-    // Eventos compatíveis com PlayerAnimation (usam SkillData)
-    public event Action<SkillData, float> OnSkillCastStarted;
-    public event Action OnSkillCastFinished;
-    public event Action<SkillData> OnSkillExecuted;
-
-    void Awake()
+    public class PlayerSkills : NetworkBehaviour
     {
-        playerStats = GetComponent<PlayerStats>();
-    }
+        [SyncVar(hook = nameof(OnSkillsDataChanged))] 
+        private string _skillsData = "";
 
-    void Update()
-    {
-        if (!isLocalPlayer) return;
+        private readonly Dictionary<int, int> _skillLevels = new Dictionary<int, int>();
+        private readonly Dictionary<int, float> _skillCooldowns = new Dictionary<int, float>();
+        private PlayerStats _stats;
+        private PlayerAnimation _animation;
+        private PlayerCombat _combat;
 
-        for (int i = 0; i < skills.Count && i < 4; i++)
+        void Awake()
         {
-            if (Input.GetKeyDown(KeyCode.Alpha1 + i))
+            _stats = GetComponent<PlayerStats>();
+            _animation = GetComponent<PlayerAnimation>();
+            _combat = GetComponent<PlayerCombat>();
+        }
+
+        void Update()
+        {
+            List<int> keys = new List<int>(_skillCooldowns.Keys);
+            foreach (int key in keys)
             {
-                TryUseSkill(i);
+                if (_skillCooldowns[key] > 0)
+                    _skillCooldowns[key] -= Time.deltaTime;
             }
         }
-    }
 
-    #region Skill Usage
-
-    [Client]
-    public void TryUseSkill(int skillIndex)
-    {
-        if (skillIndex < 0 || skillIndex >= skills.Count)
+        [Server]
+        public void LearnSkill(int skillId, int level)
         {
-            if (showSkillDebugLogs) Debug.Log("[PlayerSkills] TryUseSkill CANCELADO: indice " + skillIndex + " invalido");
-            return;
+            _skillLevels[skillId] = level;
+            SerializeSkills();
         }
 
-        PlayerSkillData skill = skills[skillIndex];
-        if (skill == null)
+        [Server]
+        public void UseSkill(int skillId, Vector3 targetPosition, NetworkIdentity target)
         {
-            if (showSkillDebugLogs) Debug.Log("[PlayerSkills] TryUseSkill CANCELADO: skill no indice " + skillIndex + " eh null");
-            return;
+            if (!_skillLevels.ContainsKey(skillId)) return;
+
+            SkillData skillData = SkillDatabase.Instance?.GetSkill(skillId);
+            if (skillData == null) return;
+
+            if (_skillCooldowns.ContainsKey(skillId) && _skillCooldowns[skillId] > 0)
+                return;
+
+            if (_stats.CurrentMp < skillData.MpCost || _stats.CurrentSp < skillData.SpCost)
+                return;
+
+            _stats.ConsumeMp(skillData.MpCost);
+            _stats.ConsumeSp(skillData.SpCost);
+
+            _skillCooldowns[skillId] = skillData.Cooldown;
+
+            ExecuteSkill(skillData, targetPosition, target);
+
+            _animation.RpcTriggerSkill(skillId);
         }
 
-        if (playerStats.IsDead)
+        [Server]
+        void ExecuteSkill(SkillData data, Vector3 targetPosition, NetworkIdentity target)
         {
-            if (showSkillDebugLogs) Debug.Log("[PlayerSkills] TryUseSkill CANCELADO: player esta morto");
-            return;
-        }
-
-        if (Time.time < lastSkillTime + globalCooldown)
-        {
-            if (showSkillDebugLogs) Debug.Log("[PlayerSkills] TryUseSkill CANCELADO: global cooldown");
-            return;
-        }
-
-        if (skillCooldowns.TryGetValue(skillIndex, out float cooldownEnd) && Time.time < cooldownEnd)
-        {
-            if (showSkillDebugLogs) Debug.Log("[PlayerSkills] TryUseSkill CANCELADO: skill em cooldown (" + (cooldownEnd - Time.time).ToString("F1") + "s restantes)");
-            return;
-        }
-
-        // 🔧 CORREÇÃO: PlayerSkillData usa "manaCost", não "mpCost"
-        if (playerStats.Mana < skill.manaCost)
-        {
-            if (showSkillDebugLogs) Debug.Log("[PlayerSkills] TryUseSkill CANCELADO: mana insuficiente (" + playerStats.Mana + "/" + skill.manaCost + ")");
-            return;
-        }
-
-        if (playerStats.Stamina < skill.staminaCost)
-        {
-            if (showSkillDebugLogs) Debug.Log("[PlayerSkills] TryUseSkill CANCELADO: stamina insuficiente (" + playerStats.Stamina + "/" + skill.staminaCost + ")");
-            return;
-        }
-
-        if (playerStats.Level < skill.requiredLevel)
-        {
-            if (showSkillDebugLogs) Debug.Log("[PlayerSkills] TryUseSkill CANCELADO: level insuficiente (" + playerStats.Level + "/" + skill.requiredLevel + ")");
-            return;
-        }
-
-        if (showSkillDebugLogs)
-        {
-            Debug.Log("[PlayerSkills] ===============================================");
-            Debug.Log("[PlayerSkills] TryUseSkill() -> " + skill.skillName);
-            Debug.Log("[PlayerSkills]   Indice: " + skillIndex);
-            Debug.Log("[PlayerSkills]   Mana: " + skill.manaCost);
-            Debug.Log("[PlayerSkills] ===============================================");
-        }
-
-        lastSkillTime = Time.time;
-        skillCooldowns[skillIndex] = Time.time + skill.cooldown;
-
-        // 🔧 CORREÇÃO: Criar SkillData wrapper com os nomes CORRETOS do SEU SkillData
-        SkillData skillDataWrapper = CreateSkillDataWrapper(skill, skillIndex);
-
-        // Usar castTime do PlayerSkillData
-        OnSkillCastStarted?.Invoke(skillDataWrapper, skill.castTime);
-
-        CmdUseSkill(skillIndex, transform.position, transform.forward);
-    }
-
-    // 🔧 CORREÇÃO: Mapeia PlayerSkillData → SkillData (seu original) corretamente
-    private SkillData CreateSkillDataWrapper(PlayerSkillData playerSkill, int index)
-    {
-        SkillData wrapper = ScriptableObject.CreateInstance<SkillData>();
-
-        // Campos comuns
-        wrapper.skillName = playerSkill.skillName;
-        wrapper.animationVariant = index;
-        wrapper.castTime = playerSkill.castTime;
-        wrapper.cooldown = playerSkill.cooldown;
-        wrapper.requiredLevel = playerSkill.requiredLevel;
-
-        // 🔧 CORREÇÃO: Seu SkillData usa "mpCost", não "manaCost"
-        // Mas como o wrapper é só para notificar o PlayerAnimation, 
-        // e PlayerAnimation só lê animationVariant, não precisamos mpCost aqui
-
-        return wrapper;
-    }
-
-    [Command]
-    private void CmdUseSkill(int skillIndex, Vector3 castPos, Vector3 castDir)
-    {
-        if (showSkillDebugLogs)
-            Debug.Log("[PlayerSkills] CmdUseSkill recebido | skillIndex=" + skillIndex + " | isDead=" + playerStats.IsDead);
-
-        if (playerStats.IsDead)
-        {
-            Debug.LogWarning("[PlayerSkills] CmdUseSkill CANCELADO: player morto");
-            return;
-        }
-
-        if (skillIndex < 0 || skillIndex >= skills.Count)
-        {
-            Debug.LogWarning("[PlayerSkills] CmdUseSkill CANCELADO: indice invalido " + skillIndex);
-            return;
-        }
-
-        PlayerSkillData skill = skills[skillIndex];
-        if (skill == null)
-        {
-            Debug.LogWarning("[PlayerSkills] CmdUseSkill CANCELADO: skill null no indice " + skillIndex);
-            return;
-        }
-
-        // 🔧 CORREÇÃO: Usar manaCost (PlayerSkillData) não mpCost
-        playerStats.RestoreMana(-skill.manaCost);
-        playerStats.RestoreStamina(-skill.staminaCost);
-
-        ExecuteSkillEffect(skill, castPos, castDir);
-
-        RpcOnSkillUsed(skillIndex, castPos, castDir);
-    }
-
-    [Server]
-    private void ExecuteSkillEffect(PlayerSkillData skill, Vector3 castPos, Vector3 castDir)
-    {
-        if (showSkillDebugLogs)
-            Debug.Log("[PlayerSkills] ExecuteSkillEffect: " + skill.skillName + " | type=" + skill.skillType);
-
-        switch (skill.skillType)
-        {
-            case PlayerSkillType.SingleTarget:
-                ExecuteSingleTargetSkill(skill, castPos, castDir);
-                break;
-            case PlayerSkillType.AreaOfEffect:
-                ExecuteAOESkill(skill, castPos, castDir);
-                break;
-            case PlayerSkillType.SelfBuff:
-                ExecuteSelfBuffSkill(skill);
-                break;
-            case PlayerSkillType.Projectile:
-                ExecuteProjectileSkill(skill, castPos, castDir);
-                break;
-            default:
-                Debug.LogWarning("[PlayerSkills] Tipo de skill nao implementado: " + skill.skillType);
-                break;
-        }
-    }
-
-    [Server]
-    private void ExecuteSingleTargetSkill(PlayerSkillData skill, Vector3 castPos, Vector3 castDir)
-    {
-        if (Physics.Raycast(castPos + Vector3.up, castDir, out RaycastHit hit, skill.range, LayerMask.GetMask("Enemy")))
-        {
-            ICharacterStats targetStats = hit.collider.GetComponent<ICharacterStats>();
-            if (targetStats != null && !targetStats.IsDead)
+            switch (data.TargetType)
             {
-                int damage = CalculateSkillDamage(skill);
-                targetStats.TakeDamage(damage, netId, skill.damageType);
-                Debug.Log("[PlayerSkills] SingleTarget: " + skill.skillName + " causou " + damage + " em " + hit.collider.name);
+                case TargetType.Self:
+                    ApplySkillEffect(data, netId);
+                    break;
+
+                case TargetType.Single:
+                    if (target != null)
+                        ApplySkillEffect(data, target.netId);
+                    break;
+
+                case TargetType.AoE:
+                    // TODO: Area of effect
+                    break;
+
+                case TargetType.Line:
+                    // TODO: Line projectile
+                    break;
+            }
+
+            if (data.ProjectilePrefab != null)
+            {
+                GameObject projectile = Instantiate(data.ProjectilePrefab, transform.position + Vector3.up, Quaternion.identity);
+                SkillProjectile proj = projectile.GetComponent<SkillProjectile>();
+                if (proj != null)
+                {
+                    proj.Initialize(data, targetPosition, target);
+                }
+                NetworkServer.Spawn(projectile);
+            }
+        }
+
+        [Server]
+        void ApplySkillEffect(SkillData data, uint targetNetId)
+        {
+            NetworkIdentity targetObj = NetworkServer.spawned[targetNetId];
+            if (targetObj == null) return;
+
+            PlayerStats targetStats = targetObj.GetComponent<PlayerStats>();
+            if (targetStats == null) return;
+
+            int damage = CalculateSkillDamage(data);
+
+            if (data.DamageType == DamageType.Heal)
+            {
+                targetStats.Heal(damage);
             }
             else
             {
-                Debug.Log("[PlayerSkills] SingleTarget: alvo " + hit.collider.name + " nao tem ICharacterStats ou esta morto");
+                targetStats.TakeDamage(damage);
             }
         }
-        else
+
+        [Server]
+        int CalculateSkillDamage(SkillData data)
         {
-            Debug.Log("[PlayerSkills] SingleTarget: nenhum alvo encontrado no raycast");
+            int baseDamage = data.BaseDamage;
+            int level = _skillLevels.ContainsKey(data.SkillId) ? _skillLevels[data.SkillId] : 1;
+
+            float multiplier = data.DamageMultiplier * level;
+            int finalDamage = Mathf.RoundToInt(baseDamage * multiplier);
+
+            if (data.DamageType == DamageType.Physical)
+                finalDamage += _stats.PhysicalAttack;
+            else if (data.DamageType == DamageType.Magic)
+                finalDamage += _stats.MagicAttack;
+
+            return Mathf.Max(1, finalDamage);
         }
-    }
 
-    [Server]
-    private void ExecuteAOESkill(PlayerSkillData skill, Vector3 castPos, Vector3 castDir)
-    {
-        Vector3 center = castPos + castDir * skill.range * 0.5f;
-        Collider[] hits = Physics.OverlapSphere(center, skill.aoeRadius, LayerMask.GetMask("Enemy"));
-
-        Debug.Log("[PlayerSkills] AOE: " + skill.skillName + " | center=" + center + " | radius=" + skill.aoeRadius + " | hits=" + hits.Length);
-
-        foreach (var hit in hits)
+        [Server]
+        void SerializeSkills()
         {
-            ICharacterStats targetStats = hit.GetComponent<ICharacterStats>();
-            if (targetStats != null && !targetStats.IsDead)
+            List<string> list = new List<string>();
+            foreach (KeyValuePair<int, int> kvp in _skillLevels)
             {
-                int damage = CalculateSkillDamage(skill);
-                targetStats.TakeDamage(damage, netId, skill.damageType);
-                Debug.Log("[PlayerSkills] AOE hit: " + hit.name + " recebeu " + damage + " dmg");
+                list.Add($"{kvp.Key}:{kvp.Value}");
             }
+            _skillsData = string.Join(";", list);
         }
-    }
 
-    [Server]
-    private void ExecuteSelfBuffSkill(PlayerSkillData skill)
-    {
-        Debug.Log("[PlayerSkills] SelfBuff: " + skill.skillName + " aplicado em " + gameObject.name);
-
-        foreach (var modifier in skill.statModifiers)
+        void OnSkillsDataChanged(string oldValue, string newValue)
         {
-            if (string.IsNullOrEmpty(modifier.sourceId))
-                modifier.sourceId = "skill_" + skill.skillName;
-            playerStats.AddModifier(modifier);
+            // Atualizar UI de skills
         }
 
-        if (skill.buffDuration > 0)
-        {
-            StartCoroutine(RemoveBuffAfterDelay(skill));
-        }
+        public bool HasSkill(int skillId) => _skillLevels.ContainsKey(skillId);
+        public int GetSkillLevel(int skillId) => _skillLevels.ContainsKey(skillId) ? _skillLevels[skillId] : 0;
+        public float GetCooldown(int skillId) => _skillCooldowns.ContainsKey(skillId) ? _skillCooldowns[skillId] : 0;
     }
-
-    [Server]
-    private System.Collections.IEnumerator RemoveBuffAfterDelay(PlayerSkillData skill)
-    {
-        yield return new WaitForSeconds(skill.buffDuration);
-
-        string sourceId = "skill_" + skill.skillName;
-        playerStats.RemoveModifiersBySource(sourceId);
-
-        Debug.Log("[PlayerSkills] Buff " + skill.skillName + " expirou");
-    }
-
-    [Server]
-    private void ExecuteProjectileSkill(PlayerSkillData skill, Vector3 castPos, Vector3 castDir)
-    {
-        if (skill.projectilePrefab != null)
-        {
-            GameObject proj = Instantiate(skill.projectilePrefab, castPos + Vector3.up, Quaternion.LookRotation(castDir));
-            NetworkServer.Spawn(proj);
-            Debug.Log("[PlayerSkills] Projectile: " + skill.skillName + " spawnado");
-        }
-        else
-        {
-            Debug.LogWarning("[PlayerSkills] Projectile: " + skill.skillName + " nao tem projectilePrefab!");
-        }
-    }
-
-    [Server]
-    private int CalculateSkillDamage(PlayerSkillData skill)
-    {
-        int baseDamage = skill.baseDamage;
-
-        switch (skill.scalingStat)
-        {
-            case StatType.STR:
-                baseDamage += Mathf.RoundToInt(playerStats.Strength * skill.scalingFactor);
-                break;
-            case StatType.AGI:
-                baseDamage += Mathf.RoundToInt(playerStats.Agility * skill.scalingFactor);
-                break;
-            case StatType.SPR:
-                baseDamage += Mathf.RoundToInt(playerStats.Spirit * skill.scalingFactor);
-                break;
-            case StatType.Attack:
-                baseDamage += Mathf.RoundToInt(playerStats.Attack * skill.scalingFactor);
-                break;
-            case StatType.MagicAttack:
-                baseDamage += Mathf.RoundToInt(playerStats.MagicAttack * skill.scalingFactor);
-                break;
-        }
-
-        float variance = UnityEngine.Random.Range(0.9f, 1.1f);
-        return Mathf.Max(1, Mathf.RoundToInt(baseDamage * variance));
-    }
-
-    [ClientRpc]
-    private void RpcOnSkillUsed(int skillIndex, Vector3 castPos, Vector3 castDir)
-    {
-        if (skillIndex < 0 || skillIndex >= skills.Count) return;
-        PlayerSkillData skill = skills[skillIndex];
-        if (skill == null) return;
-
-        if (showSkillDebugLogs)
-            Debug.Log("[PlayerSkills] RpcOnSkillUsed: " + skill.skillName);
-
-        if (skill.castEffectPrefab != null)
-        {
-            Instantiate(skill.castEffectPrefab, castPos, Quaternion.identity);
-        }
-
-        // Notificar eventos com SkillData wrapper
-        SkillData wrapper = CreateSkillDataWrapper(skill, skillIndex);
-        OnSkillCastFinished?.Invoke();
-        OnSkillExecuted?.Invoke(wrapper);
-
-        GetComponent<PlayerAnimation>()?.SetTrigger("Skill" + skillIndex);
-    }
-
-    #endregion
-
-    #region Public API
-
-    public float GetSkillCooldownRemaining(int skillIndex)
-    {
-        if (skillCooldowns.TryGetValue(skillIndex, out float endTime))
-            return Mathf.Max(0, endTime - Time.time);
-        return 0;
-    }
-
-    public bool IsSkillReady(int skillIndex)
-    {
-        if (skillIndex < 0 || skillIndex >= skills.Count) return false;
-        if (playerStats.IsDead) return false;
-
-        PlayerSkillData skill = skills[skillIndex];
-        if (skill == null) return false;
-        if (playerStats.Mana < skill.manaCost) return false;
-        if (playerStats.Stamina < skill.staminaCost) return false;
-        if (playerStats.Level < skill.requiredLevel) return false;
-        if (GetSkillCooldownRemaining(skillIndex) > 0) return false;
-        if (Time.time < lastSkillTime + globalCooldown) return false;
-
-        return true;
-    }
-
-    public List<PlayerSkillData> GetSkills() => skills;
-
-    #endregion
-}
-
-// Enums e Data
-public enum PlayerSkillType
-{
-    SingleTarget,
-    AreaOfEffect,
-    SelfBuff,
-    Projectile
-}
-
-[CreateAssetMenu(fileName = "NewPlayerSkill", menuName = "Tales of Pirates/Player Skill Data")]
-public class PlayerSkillData : ScriptableObject
-{
-    public string skillName = "Skill";
-    public string description = "";
-    public Sprite icon;
-    public PlayerSkillType skillType = PlayerSkillType.SingleTarget;
-    public DamageType damageType = DamageType.Physical;
-
-    [Header("Costs")]
-    public int manaCost = 10;        // 🔥 Usado no PlayerSkills
-    public int staminaCost = 5;
-    public int requiredLevel = 1;
-    public float cooldown = 5f;
-    public float castTime = 0.5f;
-
-    [Header("Damage")]
-    public int baseDamage = 20;
-    public StatType scalingStat = StatType.STR;
-    public float scalingFactor = 1.0f;
-
-    [Header("AOE")]
-    public float range = 10f;
-    public float aoeRadius = 3f;
-
-    [Header("Buff")]
-    public float buffDuration = 10f;
-    public List<StatModifier> statModifiers = new List<StatModifier>();
-
-    [Header("Projectile")]
-    public GameObject projectilePrefab;
-
-    [Header("Effects")]
-    public GameObject castEffectPrefab;
-    public GameObject hitEffectPrefab;
 }

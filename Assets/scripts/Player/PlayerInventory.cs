@@ -1,265 +1,147 @@
 using UnityEngine;
 using Mirror;
+using System;
 using System.Collections.Generic;
+using TOP.Inventory;
+using TOP.Core;
 
-public class PlayerInventory : NetworkBehaviour
+namespace TOP.Player
 {
-    [Header("Configuração")]
-    [SyncVar] public int totalSlots = 48;
-
-    [Header("Inventário")]
-    public readonly SyncList<InventoryItem> inventorySlots = new SyncList<InventoryItem>();
-
-    public event System.Action<int, InventoryItem> OnSlotChanged;
-    public event System.Action<ItemData, int> OnItemAdded;
-    public event System.Action<ItemData, int> OnItemRemoved;
-
-    public override void OnStartServer()
+    public class PlayerInventory : NetworkBehaviour
     {
-        base.OnStartServer();
-        while (inventorySlots.Count < totalSlots)
-            inventorySlots.Add(InventoryItem.Empty);
-    }
+        [SyncVar(hook = nameof(OnInventoryDataChanged))] 
+        private string _inventoryData = "";
 
-    public override void OnStartClient()
-    {
-        base.OnStartClient();
-        inventorySlots.Callback += OnInventoryUpdated;
-    }
+        private readonly InventoryItem[] _slots = new InventoryItem[40];
+        public event Action OnInventoryChanged;
 
-    void OnDestroy()
-    {
-        inventorySlots.Callback -= OnInventoryUpdated;
-    }
-
-    void OnInventoryUpdated(SyncList<InventoryItem>.Operation op, int index, InventoryItem oldItem, InventoryItem newItem)
-    {
-        OnSlotChanged?.Invoke(index, newItem);
-    }
-
-    [Command]
-    public void CmdUseItem(int inventoryIndex)
-    {
-        if (inventoryIndex < 0 || inventoryIndex >= inventorySlots.Count) return;
-        var item = inventorySlots[inventoryIndex];
-        if (item.IsEmpty) return;
-
-        var itemData = ItemDatabase.Instance?.GetItem(item.itemId);
-        if (itemData == null) return;
-
-        if (itemData is EquipmentData equipData)
+        void Awake()
         {
-            var playerEquip = GetComponent<PlayerEquipment>();
-            if (playerEquip != null && playerEquip.CanEquip(equipData))
-            {
-                inventorySlots[inventoryIndex] = InventoryItem.Empty;
-                playerEquip.EquipItem(equipData, item.durability, item.refineLevel);
-                RpcNotifyItemEquipped(itemData.itemName);
-            }
+            for (int i = 0; i < _slots.Length; i++)
+                _slots[i] = null;
         }
-        else if (itemData.itemType == ItemType.Consumable)
+
+        [Server]
+        public void AddItem(int itemId, int quantity, ushort slotIndex)
         {
-            item.quantity--;
-            if (item.quantity <= 0)
-                inventorySlots[inventoryIndex] = InventoryItem.Empty;
-            else
-                inventorySlots[inventoryIndex] = item;
-            RpcNotifyItemUsed(itemData.itemName);
-        }
-    }
+            if (slotIndex >= _slots.Length) return;
 
-    [Command]
-    public void CmdMoveItem(int fromIndex, int toIndex)
-    {
-        if (fromIndex < 0 || fromIndex >= inventorySlots.Count) return;
-        if (toIndex < 0 || toIndex >= inventorySlots.Count) return;
-        if (fromIndex == toIndex) return;
-
-        var fromItem = inventorySlots[fromIndex];
-        var toItem = inventorySlots[toIndex];
-
-        if (!fromItem.IsEmpty && !toItem.IsEmpty && fromItem.itemId == toItem.itemId)
-        {
-            var itemData = ItemDatabase.Instance?.GetItem(fromItem.itemId);
-            if (itemData != null && itemData.IsStackable)
+            _slots[slotIndex] = new InventoryItem
             {
-                int total = fromItem.quantity + toItem.quantity;
-                if (total <= itemData.maxStack)
+                ItemId = itemId,
+                Quantity = quantity,
+                SlotIndex = slotIndex
+            };
+
+            SerializeInventory();
+        }
+
+        [Command]
+        public void CmdAddItem(int itemId, int quantity)
+        {
+            for (ushort i = 0; i < _slots.Length; i++)
+            {
+                if (_slots[i] == null)
                 {
-                    inventorySlots[toIndex] = new InventoryItem
-                    {
-                        itemId = toItem.itemId,
-                        quantity = total,
-                        durability = toItem.durability,
-                        refineLevel = toItem.refineLevel
-                    };
-                    inventorySlots[fromIndex] = InventoryItem.Empty;
+                    AddItem(itemId, quantity, i);
                     return;
                 }
             }
         }
 
-        inventorySlots[fromIndex] = toItem;
-        inventorySlots[toIndex] = fromItem;
-    }
-
-    [Command]
-    public void CmdUnequipItem(EquipmentSlot slot)
-    {
-        var playerEquip = GetComponent<PlayerEquipment>();
-        if (playerEquip == null) return;
-
-        var equipped = playerEquip.GetEquippedItemStruct(slot);
-        if (equipped.IsEmpty) return;
-
-        int emptyIndex = FindEmptySlot();
-        if (emptyIndex == -1)
+        [Command]
+        public void CmdMoveItem(ushort fromSlot, ushort toSlot)
         {
-            TargetShowMessage(connectionToClient, "Inventário cheio!");
-            return;
+            if (fromSlot >= _slots.Length || toSlot >= _slots.Length) return;
+
+            InventoryItem temp = _slots[toSlot];
+            _slots[toSlot] = _slots[fromSlot];
+            if (_slots[toSlot] != null)
+                _slots[toSlot].SlotIndex = toSlot;
+
+            _slots[fromSlot] = temp;
+            if (_slots[fromSlot] != null)
+                _slots[fromSlot].SlotIndex = fromSlot;
+
+            SerializeInventory();
         }
 
-        var itemData = ItemDatabase.Instance?.GetItem(equipped.itemId);
-        if (itemData == null) return;
-
-        playerEquip.UnequipItem(slot);
-        inventorySlots[emptyIndex] = new InventoryItem
+        [Command]
+        public void CmdEquipItem(ushort inventorySlot, EquipmentSlot targetSlot)
         {
-            itemId = equipped.itemId,
-            quantity = 1,
-            durability = equipped.durability,
-            refineLevel = equipped.refineLevel
-        };
-    }
+            PlayerEquipment equipment = GetComponent<PlayerEquipment>();
+            if (equipment == null) return;
 
-    [Command]
-    public void CmdAddItemDebug(int itemId, int quantity)
-    {
-        AddItem(itemId, quantity);
-    }
+            InventoryItem item = _slots[inventorySlot];
+            if (item == null) return;
 
-    [Command]
-    public void CmdRemoveItemDebug(int itemId, int quantity)
-    {
-        RemoveItem(itemId, quantity);
-    }
+            equipment.CmdEquipItem(inventorySlot, targetSlot);
+        }
 
-    public void AddItem(int itemId, int quantity)
-    {
-        if (!isServer) return;
-        var itemData = ItemDatabase.Instance?.GetItem(itemId);
-        if (itemData == null) return;
-
-        int remaining = quantity;
-
-        if (itemData.IsStackable)
+        [Command]
+        public void CmdDropItem(ushort slotIndex, int quantity, Vector3 dropPosition)
         {
-            for (int i = 0; i < inventorySlots.Count && remaining > 0; i++)
+            InventoryItem item = _slots[slotIndex];
+            if (item == null || item.Quantity < quantity) return;
+
+            WorldItemManager worldItemManager = FindObjectOfType<WorldItemManager>();
+            if (worldItemManager != null)
             {
-                if (inventorySlots[i].itemId == itemId)
+                worldItemManager.SpawnWorldItem(item.ItemId, quantity, dropPosition);
+            }
+
+            item.Quantity -= quantity;
+            if (item.Quantity <= 0)
+                _slots[slotIndex] = null;
+
+            SerializeInventory();
+        }
+
+        [Command]
+        public void CmdUseItem(ushort slotIndex)
+        {
+            PlayerConsumables consumables = GetComponent<PlayerConsumables>();
+            if (consumables != null)
+            {
+                consumables.CmdUseItem(slotIndex);
+            }
+        }
+
+        [Server]
+        public void RemoveItem(ushort slotIndex, int quantity)
+        {
+            if (slotIndex >= _slots.Length || _slots[slotIndex] == null) return;
+
+            _slots[slotIndex].Quantity -= quantity;
+            if (_slots[slotIndex].Quantity <= 0)
+                _slots[slotIndex] = null;
+
+            SerializeInventory();
+        }
+
+        public InventoryItem GetItem(ushort slotIndex)
+        {
+            if (slotIndex >= _slots.Length) return null;
+            return _slots[slotIndex];
+        }
+
+        [Server]
+        public void SerializeInventory()
+        {
+            List<string> list = new List<string>();
+            for (int i = 0; i < _slots.Length; i++)
+            {
+                if (_slots[i] != null)
                 {
-                    int canAdd = itemData.maxStack - inventorySlots[i].quantity;
-                    if (canAdd > 0)
-                    {
-                        int add = Mathf.Min(canAdd, remaining);
-                        var slot = inventorySlots[i];
-                        slot.quantity += add;
-                        inventorySlots[i] = slot;
-                        remaining -= add;
-                    }
+                    list.Add($"{i}:{_slots[i].ItemId}:{_slots[i].Quantity}:{(_slots[i].IsEquipped ? 1 : 0)}");
                 }
             }
+            _inventoryData = string.Join(";", list);
         }
 
-        while (remaining > 0)
+        void OnInventoryDataChanged(string oldValue, string newValue)
         {
-            int emptyIndex = FindEmptySlot();
-            if (emptyIndex == -1) break;
-
-            int add = itemData.IsStackable ? Mathf.Min(remaining, itemData.maxStack) : 1;
-            inventorySlots[emptyIndex] = new InventoryItem
-            {
-                itemId = itemId,
-                quantity = add,
-                durability = (itemData is EquipmentData eq) ? eq.maxDurability : -1,
-                refineLevel = 0
-            };
-            remaining -= add;
-
-            if (!itemData.IsStackable) break;
+            OnInventoryChanged?.Invoke();
         }
-
-        if (quantity - remaining > 0)
-            OnItemAdded?.Invoke(itemData, quantity - remaining);
-    }
-
-    public void RemoveItem(int itemId, int quantity)
-    {
-        if (!isServer) return;
-        int remaining = quantity;
-
-        for (int i = 0; i < inventorySlots.Count && remaining > 0; i++)
-        {
-            if (inventorySlots[i].itemId == itemId)
-            {
-                int remove = Mathf.Min(inventorySlots[i].quantity, remaining);
-                var slot = inventorySlots[i];
-                slot.quantity -= remove;
-                if (slot.quantity <= 0)
-                    inventorySlots[i] = InventoryItem.Empty;
-                else
-                    inventorySlots[i] = slot;
-                remaining -= remove;
-            }
-        }
-
-        if (quantity - remaining > 0)
-        {
-            var itemData = ItemDatabase.Instance?.GetItem(itemId);
-            OnItemRemoved?.Invoke(itemData, quantity - remaining);
-        }
-    }
-
-    public int FindEmptySlot()
-    {
-        for (int i = 0; i < inventorySlots.Count; i++)
-            if (inventorySlots[i].IsEmpty) return i;
-        return -1;
-    }
-
-    // ====== MÉTODO ADICIONADO PARA COMPATIBILIDADE ======
-
-    public int FindItemSlot(int itemId)
-    {
-        for (int i = 0; i < inventorySlots.Count; i++)
-        {
-            if (inventorySlots[i].itemId == itemId)
-                return i;
-        }
-        return -1; // Não encontrado
-    }
-
-    public InventoryItem GetSlot(int index)
-    {
-        if (index < 0 || index >= inventorySlots.Count) return InventoryItem.Empty;
-        return inventorySlots[index];
-    }
-
-    [ClientRpc]
-    void RpcNotifyItemEquipped(string itemName)
-    {
-        Debug.Log($"[PlayerInventory] Equipou: {itemName}");
-    }
-
-    [ClientRpc]
-    void RpcNotifyItemUsed(string itemName)
-    {
-        Debug.Log($"[PlayerInventory] Usou: {itemName}");
-    }
-
-    [TargetRpc]
-    void TargetShowMessage(NetworkConnection target, string message)
-    {
-        Debug.Log($"[PlayerInventory] {message}");
     }
 }
