@@ -1,50 +1,54 @@
 using UnityEngine;
 
-public class LevelUpEffectManager : MonoBehaviour
+namespace TOP.Systems
 {
-    public static LevelUpEffectManager Instance { get; private set; }
 
-    [Header("Effects")]
-    [SerializeField] private ParticleSystem levelUpEffect;
-    [SerializeField] private AudioClip levelUpSound;
-    [SerializeField] private GameObject levelUpTextPrefab;
-
-    void Awake()
+    public class LevelUpEffectManager : MonoBehaviour
     {
-        if (Instance != null && Instance != this)
-        {
-            Destroy(gameObject);
-            return;
-        }
-        Instance = this;
-        DontDestroyOnLoad(gameObject);
-    }
+        public static LevelUpEffectManager Instance { get; private set; }
 
-    public void PlayEffect(Vector3 position)
-    {
-        if (levelUpEffect != null)
+        [Header("Effects")]
+        [SerializeField] private ParticleSystem levelUpEffect;
+        [SerializeField] private AudioClip levelUpSound;
+        [SerializeField] private GameObject levelUpTextPrefab;
+
+        void Awake()
         {
-            ParticleSystem effect = Instantiate(levelUpEffect, position + Vector3.up, Quaternion.identity);
-            effect.Play();
-            Destroy(effect.gameObject, 3f);
+            if (Instance != null && Instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+            Instance = this;
+            DontDestroyOnLoad(gameObject);
         }
 
-        if (levelUpSound != null)
-            AudioSource.PlayClipAtPoint(levelUpSound, position);
-
-        if (levelUpTextPrefab != null)
+        public void PlayEffect(Vector3 position)
         {
-            GameObject text = Instantiate(levelUpTextPrefab, position + Vector3.up * 2f, Quaternion.identity);
-            Destroy(text, 2f);
+            if (levelUpEffect != null)
+            {
+                ParticleSystem effect = Instantiate(levelUpEffect, position + Vector3.up, Quaternion.identity);
+                effect.Play();
+                Destroy(effect.gameObject, 3f);
+            }
+
+            if (levelUpSound != null)
+                AudioSource.PlayClipAtPoint(levelUpSound, position);
+
+            if (levelUpTextPrefab != null)
+            {
+                GameObject text = Instantiate(levelUpTextPrefab, position + Vector3.up * 2f, Quaternion.identity);
+                Destroy(text, 2f);
+            }
+
+            CreateLevelUpRing(position);
         }
 
-        CreateLevelUpRing(position);
-    }
-
-    private void CreateLevelUpRing(Vector3 position)
-    {
-        GameObject ring = new GameObject("LevelUpRing");
-        ring.transform.position = position;
-        Destroy(ring, 3f);
+        private void CreateLevelUpRing(Vector3 position)
+        {
+            GameObject ring = new GameObject("LevelUpRing");
+            ring.transform.position = position;
+            Destroy(ring, 3f);
+        }
     }
 }

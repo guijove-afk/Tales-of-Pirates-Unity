@@ -1,15 +1,26 @@
 using System;
 using Mirror;
+using TOP.Core;
 
-[Serializable]
-public struct EquippedItem : NetworkMessage
+namespace TOP.Inventory
 {
-    public int itemId;
-    public int durability;
-    public int[] gemSlots;
-    public int refineLevel;
+    [Serializable]
+    public class EquippedItem
+    {
+        // Propriedades PascalCase (usadas pelo sistema namespaced)
+        public EquipmentSlot Slot;
+        public int ItemId;
+        public int ItemDatabaseId;
+        public int Durability;
+        public int RefineLevel;
+        public int[] GemSlots;
 
-    public bool IsEmpty => itemId == 0;
+        // Aliases camelCase para compatibilidade com codigo legado
+        public int itemId { get => ItemId; set => ItemId = value; }
+        public int durability { get => Durability; set => Durability = value; }
+        public int[] gemSlots { get => GemSlots; set => GemSlots = value; }
+        public int refineLevel { get => RefineLevel; set => RefineLevel = value; }
 
-    public static EquippedItem Empty => new EquippedItem { itemId = 0, durability = 0, gemSlots = null, refineLevel = 0 };
+        public bool IsEmpty => ItemId == 0;
+    }
 }

@@ -2,10 +2,21 @@ using UnityEngine;
 using Mirror;
 using System.Collections.Generic;
 using TOP.Core;
-using TOP.Inventory;
+using TOP.Inventory;  // ✅ seu namespace
+using TOP.Systems;
+using System;
 
 namespace TOP.Player
 {
+    [System.Serializable]
+    public class EquippedItem
+    {
+        public EquipmentSlot Slot;
+        public int ItemId;
+        public int ItemDatabaseId;
+        public int Durability;
+    }
+
     public class PlayerEquipment : NetworkBehaviour
     {
         [SyncVar(hook = nameof(OnEquipmentDataChanged))] 
@@ -13,33 +24,39 @@ namespace TOP.Player
 
         private readonly Dictionary<EquipmentSlot, EquippedItem> _equippedItems = new Dictionary<EquipmentSlot, EquippedItem>();
         private PlayerStats _stats;
+        private PlayerInventory _inventory;
+
+        public event Action<InventoryItem, EquipmentSlot> OnItemEquipped;
+        public event Action<InventoryItem, EquipmentSlot> OnItemUnequipped;
 
         void Awake()
         {
             _stats = GetComponent<PlayerStats>();
+            _inventory = GetComponent<PlayerInventory>();
         }
 
         [Server]
         public void EquipItem(InventoryItem item, EquipmentSlot slot)
         {
-            EquipmentData itemData = ItemDatabase.Instance?.GetItem(item.ItemId) as EquipmentData;
+            // ✅ seu ItemDatabase no namespace TOP.Inventory
+            EquipmentData itemData = ItemDatabase.Instance?.GetEquipment(item.ItemId);
             if (itemData == null) return;
 
-            // Desequipar item atual se houver
             if (_equippedItems.ContainsKey(slot))
             {
                 UnequipItem(slot);
             }
 
-            _equippedItems[slot] = new EquippedItem
-            {
-                Slot = slot,
-                ItemId = item.Id,
-                ItemDatabaseId = item.ItemId,
-                Durability = item.Durability
-            };
+         _equippedItems[slot] = new EquippedItem
+{
+    Slot = slot,
+    ItemId = item.ItemId,
+    ItemDatabaseId = item.ItemId,
+    Durability = item.Durability // Removido o ?? 100
+};
 
             ApplyEquipmentStats(itemData, true);
+            OnItemEquipped?.Invoke(item, slot);
             SerializeEquipment();
         }
 
@@ -49,10 +66,17 @@ namespace TOP.Player
             if (!_equippedItems.ContainsKey(slot)) return;
 
             EquippedItem equipped = _equippedItems[slot];
-            EquipmentData itemData = ItemDatabase.Instance?.GetItem(equipped.ItemDatabaseId) as EquipmentData;
+            EquipmentData itemData = ItemDatabase.Instance?.GetEquipment(equipped.ItemDatabaseId);
 
             if (itemData != null)
                 ApplyEquipmentStats(itemData, false);
+
+            InventoryItem unequippedItem = new InventoryItem 
+            { 
+                ItemId = equipped.ItemId, 
+                Quantity = 1 
+            };
+            OnItemUnequipped?.Invoke(unequippedItem, slot);
 
             _equippedItems.Remove(slot);
             SerializeEquipment();
@@ -63,17 +87,18 @@ namespace TOP.Player
         {
             int multiplier = add ? 1 : -1;
 
-            _stats.AddBonusStrength(data.StrBonus * multiplier);
-            _stats.AddBonusAgility(data.AgiBonus * multiplier);
-            _stats.AddBonusConstitution(data.ConBonus * multiplier);
-            _stats.AddBonusSpirit(data.SprBonus * multiplier);
-            _stats.AddBonusHp(data.HpBonus * multiplier);
-            _stats.AddBonusMp(data.MpBonus * multiplier);
-            _stats.AddBonusSp(data.SpBonus * multiplier);
-            _stats.AddBonusAttack(data.PhysicalAttack * multiplier);
-            _stats.AddBonusDefense(data.PhysicalDefense * multiplier);
+            _stats.AddBonusStrength(data.bonusSTR * multiplier);
+            _stats.AddBonusAgility(data.bonusAGI * multiplier);
+            _stats.AddBonusConstitution(data.bonusINT * multiplier);
+            _stats.AddBonusSpirit(data.bonusINT * multiplier);
+            _stats.AddBonusHp(data.bonusHP * multiplier);
+            _stats.AddBonusMp(data.bonusMP * multiplier);
+            _stats.AddBonusSp(0 * multiplier);
+            _stats.AddBonusAttack(data.bonusAttack * multiplier);
+            _stats.AddBonusDefense(data.bonusDefense * multiplier);
         }
 
+        // resto igual...
         [Server]
         void SerializeEquipment()
         {
@@ -90,19 +115,16 @@ namespace TOP.Player
             UpdateVisuals();
         }
 
-        void UpdateVisuals()
-        {
-            // TODO: Trocar modelos 3D baseado no equipamento
-        }
+        void UpdateVisuals() { }
 
         public int GetTotalAttackBonus()
         {
             int bonus = 0;
             foreach (EquippedItem item in _equippedItems.Values)
             {
-                EquipmentData data = ItemDatabase.Instance?.GetItem(item.ItemDatabaseId) as EquipmentData;
+                EquipmentData data = ItemDatabase.Instance?.GetEquipment(item.ItemDatabaseId);
                 if (data != null)
-                    bonus += data.PhysicalAttack;
+                    bonus += data.bonusAttack;
             }
             return bonus;
         }
@@ -112,25 +134,37 @@ namespace TOP.Player
             int bonus = 0;
             foreach (EquippedItem item in _equippedItems.Values)
             {
-                EquipmentData data = ItemDatabase.Instance?.GetItem(item.ItemDatabaseId) as EquipmentData;
+                EquipmentData data = ItemDatabase.Instance?.GetEquipment(item.ItemDatabaseId);
                 if (data != null)
-                    bonus += data.PhysicalDefense;
+                    bonus += data.bonusDefense;
             }
             return bonus;
+        }
+
+        public InventoryItem GetEquippedItem(EquipmentSlot slot)
+        {
+            if (_equippedItems.TryGetValue(slot, out EquippedItem equipped))
+            {
+                return new InventoryItem 
+                { 
+                    ItemId = equipped.ItemId, 
+                    Quantity = 1 
+                };
+            }
+            return null;
         }
 
         [Command]
         public void CmdEquipItem(ushort inventorySlot, EquipmentSlot targetSlot)
         {
-            PlayerInventory inv = GetComponent<PlayerInventory>();
-            if (inv == null) return;
+            if (_inventory == null) return;
 
-            InventoryItem item = inv.GetItem(inventorySlot);
+            InventoryItem item = _inventory.GetSlot(inventorySlot);
             if (item == null) return;
 
             EquipItem(item, targetSlot);
             item.IsEquipped = true;
-            inv.SerializeInventory(); // Forca sync
+            _inventory.SerializeInventory();
         }
     }
 }

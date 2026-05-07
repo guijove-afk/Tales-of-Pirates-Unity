@@ -2,11 +2,17 @@ using UnityEngine;
 using Mirror;
 using TOP.Core;
 using TOP.Systems;
+using TOP.Gameplay;  // ✅ para PlayerController
+using System;
 
 namespace TOP.Player
 {
     public class PlayerCombat : NetworkBehaviour
     {
+        public event Action OnAttackStarted;
+        public event Action OnAttackFinished;
+        public event Action<Transform> OnTargetChanged;
+
         [Header("Combat")]
         [SerializeField] private float attackRange = 2f;
         [SerializeField] private float attackCooldown = 1f;
@@ -19,12 +25,14 @@ namespace TOP.Player
         private PlayerStats _stats;
         private PlayerAnimation _animation;
         private PlayerEquipment _equipment;
+        private PlayerController _controller;  // ✅ resolvido
 
         void Awake()
         {
             _stats = GetComponent<PlayerStats>();
             _animation = GetComponent<PlayerAnimation>();
             _equipment = GetComponent<PlayerEquipment>();
+            _controller = GetComponent<PlayerController>();  // ✅ resolvido
         }
 
         void Update()
@@ -44,6 +52,7 @@ namespace TOP.Player
         public void SetTarget(NetworkIdentity target)
         {
             _currentTarget = target;
+            OnTargetChanged?.Invoke(target?.transform);
         }
 
         [Server]
@@ -56,6 +65,7 @@ namespace TOP.Player
 
             _currentTarget = target;
             _isAttacking = true;
+            OnAttackStarted?.Invoke();
         }
 
         [Server]
@@ -76,16 +86,18 @@ namespace TOP.Player
             {
                 targetStats.TakeDamage(damage);
 
-                PlayerController controller = GetComponent<PlayerController>();
-                if (controller != null)
+                // ✅ PlayerController resolvido
+                if (_controller != null)
                 {
-                    controller.RpcTakeDamage(damage, _currentTarget.transform.position);
+                    _controller.RpcTakeDamage(damage, _currentTarget.transform.position);
                 }
             }
 
-            _animation.RpcTriggerAttack();
+            // ✅ RpcTriggerAttack com tipo de ataque
+            _animation?.RpcTriggerAttack(0);  // 0 = ataque básico
 
-            _stats.ConsumeSp(5);
+            _stats?.ConsumeSp(5);
+            OnAttackFinished?.Invoke();
         }
 
         [Server]
@@ -95,13 +107,15 @@ namespace TOP.Player
 
             if (_equipment != null)
             {
+                // ✅ preparado para PlayerEquipment.GetTotalAttackBonus()
                 baseDamage += _equipment.GetTotalAttackBonus();
             }
 
-            float variation = Random.Range(0.9f, 1.1f);
+            // ✅ Random ambíguo resolvido
+            float variation = UnityEngine.Random.Range(0.9f, 1.1f);
             int finalDamage = Mathf.RoundToInt(baseDamage * variation);
 
-            if (Random.value < _stats.CriticalRate)
+            if (UnityEngine.Random.value < _stats.CriticalRate)  // ✅ Random ambíguo resolvido
             {
                 finalDamage = Mathf.RoundToInt(finalDamage * _stats.CriticalDamage);
             }

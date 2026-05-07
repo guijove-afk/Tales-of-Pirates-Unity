@@ -362,7 +362,13 @@ MonoBehaviour:
   syncDirection: 0
   syncMode: 0
   syncInterval: 0
-  showStatsDebugLogs: 1
+  BaseStrength: 0
+  BaseAgility: 0
+  BaseConstitution: 0
+  BaseSpirit: 0
+  CurrentHp: 0
+  CurrentMp: 0
+  CurrentSp: 0
 --- !u!114 &8288658688442459977
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -409,24 +415,10 @@ MonoBehaviour:
   syncDirection: 0
   syncMode: 0
   syncInterval: 0
-  baseMoveSpeed: 5
-  runSpeedMultiplier: 1.5
-  rotationSpeed: 1000
+  walkSpeed: 5
+  runSpeed: 10
+  rotationSpeed: 500
   stoppingDistance: 0.1
-  arrivalTolerance: 0.2
-  destinationSettleTime: 0.1
-  groundLayer:
-    serializedVersion: 2
-    m_Bits: 1
-  clickableLayers:
-    serializedVersion: 2
-    m_Bits: 4294967295
-  interactableLayers:
-    serializedVersion: 2
-    m_Bits: 4294967295
-  moveSpeedParam: MoveSpeed
-  isMovingParam: IsMoving
-  isRunningParam: IsRunning
 --- !u!114 &7983439657652189613
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -439,6 +431,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0e070eee598101a4b9e274abaae8e315, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerAnimation
+  syncMethod: 0
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0
   moveSpeedParam: MoveSpeed
   isMovingParam: IsMoving
   isRunningParam: IsRunning
@@ -479,10 +475,7 @@ MonoBehaviour:
   syncInterval: 0
   attackRange: 2.5
   attackCooldown: 1
-  enemyLayer:
-    serializedVersion: 2
-    m_Bits: 64
-  showCombatDebugLogs: 1
+  attackPoint: {fileID: 0}
 --- !u!114 &7401009070347969891
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -499,14 +492,6 @@ MonoBehaviour:
   syncDirection: 0
   syncMode: 0
   syncInterval: 0
-  rightHandHolder: {fileID: 0}
-  leftHandHolder: {fileID: 0}
-  headHolder: {fileID: 0}
-  bodyHolder: {fileID: 0}
-  handsHolder: {fileID: 0}
-  feetHolder: {fileID: 0}
-  backHolder: {fileID: 0}
-  waistHolder: {fileID: 0}
 --- !u!114 &169569090248864763
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -523,10 +508,6 @@ MonoBehaviour:
   syncDirection: 0
   syncMode: 0
   syncInterval: 0
-  skills:
-  - {fileID: 0}
-  globalCooldown: 0.5
-  showSkillDebugLogs: 1
 --- !u!114 &2738607716756633451
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -543,7 +524,6 @@ MonoBehaviour:
   syncDirection: 0
   syncMode: 0
   syncInterval: 0
-  totalSlots: 48
 --- !u!114 &4113756475650009034
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -577,7 +557,6 @@ MonoBehaviour:
   syncDirection: 0
   syncMode: 0
   syncInterval: 0
-  potionCooldown: 1
 --- !u!114 &2696167852740226992
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -611,9 +590,7 @@ MonoBehaviour:
   syncMode: 0
   syncInterval: 0
   respawnDelay: 5
-  spawnPoint: {x: 0, y: 0, z: 0}
-  respawnEffect: {fileID: 0}
-  respawnSound: {fileID: 0}
+  respawnPoints: []
 --- !u!114 &108415994520408426
 MonoBehaviour:
   m_ObjectHideFlags: 0

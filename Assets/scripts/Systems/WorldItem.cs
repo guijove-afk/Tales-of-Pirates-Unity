@@ -1,180 +1,186 @@
 using UnityEngine;
 using Mirror;
+using TOP.Core;
+using TOP.Inventory;
+using TOP.Gameplay;
+using System.Collections;
+using System;
+using TOP.Player;
 
-public class WorldItem : NetworkBehaviour
+namespace TOP.Gameplay
 {
-    [SyncVar] private int itemId;
-    [SyncVar] private int quantity;
-    [SyncVar] private float despawnTime;
-
-    private ItemData itemData;
-    private GameObject visualModel;
-    private float spawnTime;
-    private bool isPickedUp;
-    private bool visualCreated = false;
-
-    public int ItemId => itemId;
-    public int Quantity => quantity;
-
-    [Server]
-    public void Initialize(ItemData item, int qty, float despawnDuration = 120f)
+    public class WorldItem : NetworkBehaviour
     {
-        itemId = item.itemId;
-        quantity = qty;
-        despawnTime = Time.time + despawnDuration;
-        spawnTime = Time.time;
+        [SyncVar] private int itemId;
+        [SyncVar] private int quantity;
+        [SyncVar] private float despawnTime;
 
-        RpcCreateVisual(item.itemId);
-    }
+        private ItemData itemData;
+        private GameObject visualModel;
+        private float spawnTime;
+        private bool isPickedUp;
+        private bool visualCreated = false;
 
-    [ClientRpc]
-    private void RpcCreateVisual(int id)
-    {
-        if (ItemDatabase.Instance == null)
+        public int ItemId => itemId;
+        public int Quantity => quantity;
+
+        [Server]
+        public void Initialize(ItemData item, int qty, float despawnDuration = 120f)
         {
-            Debug.LogWarning("[WorldItem] ItemDatabase ainda não inicializado. Aguardando...");
-            StartCoroutine(WaitForDatabase(id));
-            return;
+            itemId = item.itemId;
+            quantity = qty;
+            despawnTime = Time.time + despawnDuration;
+            spawnTime = Time.time;
+
+            RpcCreateVisual(item.itemId);
         }
 
-        CreateVisual(id);
-    }
-
-    private System.Collections.IEnumerator WaitForDatabase(int id)
-    {
-        float timeout = 5f;
-        float elapsed = 0f;
-
-        while (ItemDatabase.Instance == null && elapsed < timeout)
+        [ClientRpc]
+        private void RpcCreateVisual(int id)
         {
-            elapsed += Time.deltaTime;
-            yield return null;
-        }
+            if (ItemDatabase.Instance == null)
+            {
+                StartCoroutine(WaitForDatabase(id));
+                return;
+            }
 
-        if (ItemDatabase.Instance != null)
-        {
             CreateVisual(id);
         }
-        else
-        {
-            Debug.LogError("[WorldItem] Timeout aguardando ItemDatabase!");
-        }
-    }
 
-    private void CreateVisual(int id)
-    {
-        if (visualCreated) return;
+        private IEnumerator WaitForDatabase(int id)
+        {
+            float timeout = 5f;
+            float elapsed = 0f;
 
-        itemData = ItemDatabase.Instance?.GetItem(id);
-        if (itemData == null)
-        {
-            Debug.LogError($"[WorldItem] Item ID {id} não encontrado no ItemDatabase!");
-            return;
-        }
+            while (ItemDatabase.Instance == null && elapsed < timeout)
+            {
+                elapsed += Time.deltaTime;
+                yield return null;
+            }
 
-        if (itemData.worldModelPrefab != null)
-        {
-            visualModel = Instantiate(itemData.worldModelPrefab, transform);
-            visualModel.transform.localRotation = Quaternion.Euler(itemData.dropRotation);
-            visualModel.transform.localScale = itemData.dropScale;
-        }
-        else
-        {
-            GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            cube.transform.SetParent(transform);
-            cube.transform.localPosition = Vector3.zero;
-            cube.transform.localScale = Vector3.one * 0.3f;
-            Destroy(cube.GetComponent<Collider>());
-            visualModel = cube;
+            if (ItemDatabase.Instance != null)
+            {
+                CreateVisual(id);
+            }
         }
 
-        if (GetComponent<Collider>() == null)
+        private void CreateVisual(int id)
         {
-            SphereCollider col = gameObject.AddComponent<SphereCollider>();
-            col.isTrigger = true;
-            col.radius = 0.5f;
+            if (visualCreated) return;
+
+            itemData = ItemDatabase.Instance?.GetItem(id);
+            if (itemData == null)
+            {
+                Debug.LogError($"[WorldItem] Item ID {id} não encontrado!");
+                return;
+            }
+
+            if (itemData.worldModelPrefab != null)
+            {
+                visualModel = Instantiate(itemData.worldModelPrefab, transform);
+                visualModel.transform.localRotation = Quaternion.Euler(itemData.dropRotation);
+                visualModel.transform.localScale = itemData.dropScale;
+            }
+            else
+            {
+                GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                cube.transform.SetParent(transform);
+                cube.transform.localPosition = Vector3.zero;
+                cube.transform.localScale = Vector3.one * 0.3f;
+                Destroy(cube.GetComponent<Collider>());
+                visualModel = cube;
+            }
+
+            if (GetComponent<Collider>() == null)
+            {
+                SphereCollider col = gameObject.AddComponent<SphereCollider>();
+                col.isTrigger = true;
+                col.radius = 0.5f;
+            }
+
+            if (GetComponent<Rigidbody>() == null)
+            {
+                Rigidbody rb = gameObject.AddComponent<Rigidbody>();
+                rb.isKinematic = true;
+            }
+
+            visualCreated = true;
+            StartCoroutine(FloatAnimation());
         }
 
-        if (GetComponent<Rigidbody>() == null)
+        private IEnumerator FloatAnimation()
         {
-            Rigidbody rb = gameObject.AddComponent<Rigidbody>();
-            rb.isKinematic = true;
+                float offset = UnityEngine.Random.Range(0f, 2f);
+                while (visualModel != null)
+                {
+                    float y = Mathf.Sin((Time.time - spawnTime) * 2f + offset) * 0.2f;
+                    visualModel.transform.localPosition = new Vector3(0, y, 0);
+                    visualModel.transform.Rotate(Vector3.up, 50f * Time.deltaTime);
+                    yield return null;
+                }
         }
 
-        visualCreated = true;
-        StartCoroutine(FloatAnimation());
-    }
-
-    private System.Collections.IEnumerator FloatAnimation()
-    {
-        float offset = Random.Range(0f, Mathf.PI * 2f);
-
-        while (visualModel != null)
+        void Update()
         {
-            float y = Mathf.Sin(Time.time * 2f + offset) * 0.2f;
-            visualModel.transform.localPosition = new Vector3(0, y, 0);
-            visualModel.transform.Rotate(Vector3.up, 50f * Time.deltaTime);
-            yield return null;
+            if (!isServer) return;
+
+            if (Time.time >= despawnTime && !isPickedUp)
+            {
+                NetworkServer.Destroy(gameObject);
+            }
         }
-    }
 
-    void Update()
-    {
-        if (!isServer) return;
-
-        if (Time.time >= despawnTime && !isPickedUp)
+        [Server]
+        public void Pickup(PlayerInventory inventory)
         {
-            NetworkServer.Destroy(gameObject);
+            if (isPickedUp || inventory == null) return;
+
+            isPickedUp = true;
+
+            bool success = inventory.AddItem(itemId, quantity);
+            if (success)
+            {
+                RpcPickupSuccess();
+                WorldItemManager.Instance?.RemoveWorldItem(netId);
+            }
+            else
+            {
+                isPickedUp = false;
+                TargetInventoryFull(inventory.connectionToClient);
+            }
         }
-    }
 
-    [Server]
-    public void Pickup(PlayerInventory inventory)
-    {
-        if (isPickedUp) return;
-        if (inventory == null) return;
-
-        isPickedUp = true;
-
-        // 🔧 CORREÇÃO: AddItem retorna void, verificar slot vazio antes
-        int emptySlot = inventory.FindEmptySlot();
-        if (emptySlot != -1)
+        [ClientRpc]
+        private void RpcPickupSuccess()
         {
-            inventory.AddItem(itemId, quantity);
-            RpcPickupSuccess();
-            NetworkServer.Destroy(gameObject);
+            if (itemData != null)
+            {
+                Debug.Log($"<color=yellow>+{quantity} {itemData.itemName}</color>");
+            }
         }
-        else
+
+        [TargetRpc]
+        private void TargetInventoryFull(NetworkConnectionToClient target)
         {
-            isPickedUp = false;
-            TargetInventoryFull(inventory.connectionToClient);
+            Debug.Log("<color=red>Inventário Cheio!</color>");
         }
-    }
 
-    [ClientRpc]
-    private void RpcPickupSuccess()
-    {
-        if (itemData != null)
+        void OnTriggerEnter(Collider other)
         {
-            DamagePopupManager.Instance?.ShowText(transform.position,
-                $"+{quantity} {itemData.itemName}", Color.yellow);
+            if (!isServer) return;
+
+            if (other.TryGetComponent(out PlayerInventory inventory))
+            {
+                Pickup(inventory);
+            }
         }
-    }
 
-    [TargetRpc]
-    private void TargetInventoryFull(NetworkConnectionToClient target)
-    {
-        DamagePopupManager.Instance?.ShowText(transform.position, "Inventário Cheio!", Color.red);
-    }
-
-    void OnTriggerEnter(Collider other)
-    {
-        if (!isServer) return;
-
-        if (other.TryGetComponent(out PlayerInventory inventory))
+        [Command]
+        public void CmdPickup()
         {
-            // Auto-pickup opcional
-            // Pickup(inventory);
+            PlayerInventory inv = connectionToClient.identity.GetComponent<PlayerInventory>();
+            if (inv != null)
+                Pickup(inv);
         }
     }
 }

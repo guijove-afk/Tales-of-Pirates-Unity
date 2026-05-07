@@ -1,7 +1,10 @@
 using UnityEngine;
+using TOP.Core;
 using Mirror;
 using System;
 
+namespace TOP.Player
+{
 public class PlayerClass : NetworkBehaviour
 {
     [SyncVar(hook = nameof(OnClassChanged))]
@@ -67,4 +70,5 @@ public class PlayerClass : NetworkBehaviour
     {
         OnClassChangedEvent?.Invoke(newClass);
     }
+}
 }

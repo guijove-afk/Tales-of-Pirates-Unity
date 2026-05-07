@@ -1,7 +1,13 @@
 using UnityEngine;
 using Mirror;
+using TOP.Core;
+using TOP.Inventory;
+using TOP.Systems;
 using System;
+using TOP.Player;
 
+namespace TOP.Player
+{
 public class PlayerHotbar : NetworkBehaviour
 {
     [Header("Settings")]
@@ -87,7 +93,7 @@ public class PlayerHotbar : NetworkBehaviour
             case HotbarSlotType.Item:
                 int invSlot = inventory?.FindItemSlot(slot.id) ?? -1;
                 if (invSlot >= 0)
-                    inventory?.CmdUseItem(invSlot);
+                    inventory?.CmdUseItem((ushort)invSlot);
                 break;
 
             case HotbarSlotType.Emote:
@@ -133,4 +139,5 @@ public struct HotbarSlot : Mirror.NetworkMessage
     public HotbarSlotType type;
     public int id;        // Skill index ou Item ID
     public int emoteId;   // ID do emote
+}
 }

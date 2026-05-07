@@ -1,59 +1,77 @@
 using UnityEngine;
 using Mirror;
+using TOP.Player;
+using TOP.Core;
+using TOP.Inventory;
 
-public class InventoryTestHelper : MonoBehaviour
+namespace TOP.Inventory
 {
-    [Header("Test Items")]
-    [SerializeField] private int testItemId = 1;
-    [SerializeField] private int testQuantity = 1;
 
-    [Header("Hotkeys")]
-    [SerializeField] private KeyCode addItemKey = KeyCode.F1;
-    [SerializeField] private KeyCode removeItemKey = KeyCode.F2;
-
-    private PlayerInventory playerInventory;
-    private bool initialized = false;
-
-    void Start()
+    public class InventoryTestHelper : MonoBehaviour
     {
-        Invoke(nameof(FindPlayer), 1f);
-    }
+        [Header("Test Items")]
+        [SerializeField] private int testItemId = 1;
+        [SerializeField] private int testQuantity = 1;
 
-    void FindPlayer()
-    {
-        var players = FindObjectsByType<PlayerInventory>(FindObjectsInactive.Include);
-        foreach (var p in players)
+        [Header("Hotkeys")]
+        [SerializeField] private KeyCode addItemKey = KeyCode.F1;
+        [SerializeField] private KeyCode removeItemKey = KeyCode.F2;
+
+        private PlayerInventory playerInventory;
+        private bool initialized = false;
+
+        void Start()
         {
-            if (p.isLocalPlayer)
+            Invoke(nameof(FindPlayer), 1f);
+        }
+
+        void FindPlayer()
+        {
+            var players = FindObjectsByType<PlayerInventory>(FindObjectsInactive.Include);
+            foreach (var p in players)
             {
-                playerInventory = p;
-                initialized = true;
-                Debug.Log("[InventoryTestHelper] PlayerInventory local encontrado!");
-                break;
+                if (p.isLocalPlayer)
+                {
+                    playerInventory = p;
+                    initialized = true;
+                    Debug.Log("[InventoryTestHelper] PlayerInventory local encontrado!");
+                    break;
+                }
+            }
+
+            if (!initialized)
+            {
+                Debug.LogWarning("[InventoryTestHelper] Nenhum PlayerInventory local. Tentando novamente...");
+                Invoke(nameof(FindPlayer), 2f);
             }
         }
 
-        if (!initialized)
+        void Update()
         {
-            Debug.LogWarning("[InventoryTestHelper] Nenhum PlayerInventory local. Tentando novamente...");
-            Invoke(nameof(FindPlayer), 2f);
-        }
-    }
+            if (!initialized || playerInventory == null) return;
 
-    void Update()
+            if (Input.GetKeyDown(addItemKey))
+            {
+                Debug.Log($"[InventoryTestHelper] Adicionando item {testItemId} x{testQuantity}");
+                playerInventory.CmdAddItemDebug(testItemId, testQuantity);
+            }
+
+       if (Input.GetKeyDown(removeItemKey))
+{
+    // 1. Procura em qual slot o item está
+    int slotIndex = playerInventory.FindItemSlot(testItemId);
+
+    if (slotIndex != -1)
     {
-        if (!initialized || playerInventory == null) return;
-
-        if (Input.GetKeyDown(addItemKey))
-        {
-            Debug.Log($"[InventoryTestHelper] Adicionando item {testItemId} x{testQuantity}");
-            playerInventory.CmdAddItemDebug(testItemId, testQuantity);
-        }
-
-        if (Input.GetKeyDown(removeItemKey))
-        {
-            Debug.Log($"[InventoryTestHelper] Removendo item {testItemId}");
-            playerInventory.CmdRemoveItemDebug(testItemId, testQuantity);
+        Debug.Log($"[InventoryTestHelper] Item {testItemId} encontrado no slot {slotIndex}. Removendo...");
+        // 2. Envia o comando usando o slot encontrado
+        playerInventory.CmdRemoveItemDebug((ushort)slotIndex, testQuantity);
+    }
+    else
+    {
+        Debug.LogWarning($"[InventoryTestHelper] Item {testItemId} não encontrado no inventário!");
+    }
+}
         }
     }
 }

@@ -3,6 +3,7 @@ using Mirror;
 using TOP.Core;
 using TOP.Inventory;
 using TOP.Systems;
+using TOP.Gameplay; 
 
 namespace TOP.Player
 {
@@ -20,39 +21,50 @@ namespace TOP.Player
         [Command]
         public void CmdUseItem(ushort slotIndex)
         {
+            // Validação de segurança no Servidor
+            if (_inventory == null) return;
+
             InventoryItem item = _inventory.GetItem(slotIndex);
             if (item == null) return;
 
             ItemData itemData = ItemDatabase.Instance?.GetItem(item.ItemId);
-            if (itemData == null || itemData.Type != ItemType.Consumable) return;
+            if (itemData == null || itemData.itemType != ItemType.Consumable) return;
 
             ConsumableData consumable = itemData as ConsumableData;
             if (consumable == null) return;
 
-            if (consumable.HpRestore > 0)
-                _stats.Heal(consumable.HpRestore);
+            // Aplicação dos efeitos nos Stats
+            if (consumable.restoreHP > 0)
+                _stats.Heal(consumable.restoreHP);
 
-            if (consumable.MpRestore > 0)
-                _stats.RestoreMp(consumable.MpRestore);
+            // Nota: Garanta que RestoreMp e RestoreSp existam no script PlayerStats.cs
+            if (consumable.restoreMP > 0)
+                _stats.RestoreMp(consumable.restoreMP);
 
-            if (consumable.SpRestore > 0)
-                _stats.RestoreSp(consumable.SpRestore);
+            if (consumable.restoreSP > 0)
+                _stats.RestoreSp(consumable.restoreSP);
 
-            if (consumable.BuffId > 0)
+            // Sistema de Buffs
+            if (consumable.buffs != null && consumable.buffs.Length > 0)
             {
-                BuffManager buffManager = FindObjectOfType<BuffManager>();
+                // Trocado FindAnyObjectByType por FindObjectOfType para compatibilidade
+                BuffManager buffManager = Object.FindAnyObjectByType<BuffManager>();  
                 if (buffManager != null)
                 {
-                    buffManager.ApplyBuff(netId, consumable.BuffId, consumable.BuffLevel, consumable.Duration);
+                    buffManager.ApplyBuff(netId, consumable.buffs[0].buffName, consumable.buffs[0].value, consumable.buffs[0].duration);
                 }
             }
 
+            // Consome o item (remove 1 unidade)
             _inventory.RemoveItem(slotIndex, 1);
 
+            // Feedback Visual/UI
             PlayerController controller = GetComponent<PlayerController>();
             if (controller != null)
             {
-                controller.RpcShowMessage($"Usou {itemData.ItemName}", PlayerMessageType.Success);
+                // CORREÇÃO: Se PlayerMessageType der erro, verifique se ele está no namespace TOP.Core
+                // Se estiver dentro da classe PlayerController, use PlayerController.PlayerMessageType.Success
+                controller.RpcShowMessage($"Usou {itemData.itemName}", PlayerController.PlayerMessageType.Success);
             }
         }
     }

@@ -1,256 +1,263 @@
 using UnityEngine;
 using UnityEngine.UI;
+using TOP.Core;
 using UnityEngine.EventSystems;
 using TMPro;
 using System.Collections.Generic;
+using TOP.Inventory;  // ✅ ItemDatabase
 
-public class ItemSlotUI : MonoBehaviour, IPointerClickHandler, IBeginDragHandler, IDragHandler, IEndDragHandler, IDropHandler, IPointerEnterHandler, IPointerExitHandler
+namespace TOP.Inventory
 {
-    [Header("UI Elements")]
-    [SerializeField] private Image backgroundImage;
-    [SerializeField] private Image iconImage;
-    [SerializeField] private TextMeshProUGUI quantityText;
-    [SerializeField] private Image highlightImage;
-
-    [Header("Cores")]
-    [SerializeField] private Color normalColor = new Color(1, 1, 1, 0.8f);
-    [SerializeField] private Color hoverColor = new Color(1, 1, 1, 1);
-    [SerializeField] private Color selectedColor = new Color(0.3f, 0.7f, 1f, 1f);
-    [SerializeField] private Color dragColor = new Color(1, 1, 1, 0.3f);
-
-    private int slotIndex;
-    private InventoryUI inventoryUI;
-    private bool isDragging = false;
-    private Vector3 originalIconPosition;
-    private Transform originalIconParent;
-    private CanvasGroup iconCanvasGroup;
-
-    // ✅ NOVO: Detecção manual de double-click (mais confiável que eventData.clickCount)
-    private float lastClickTime = -1f;
-    private const float DOUBLE_CLICK_THRESHOLD = 0.3f;
-
-    public int SlotIndex => slotIndex;
-    public Image IconImage => iconImage;
-    public bool HasItem => iconImage != null && iconImage.sprite != null && iconImage.enabled;
-
-    public void Initialize(int index, InventoryUI ui)
+    public class ItemSlotUI : MonoBehaviour, IPointerClickHandler, IBeginDragHandler, IDragHandler, IEndDragHandler, IDropHandler, IPointerEnterHandler, IPointerExitHandler
     {
-        slotIndex = index;
-        inventoryUI = ui;
-        
-        Debug.Log($"[ItemSlotUI] Slot {index} inicializado. inventoryUI: {(ui != null ? "OK" : "NULL")}");
-        
-        if (iconImage != null)
-        {
-            iconCanvasGroup = iconImage.GetComponent<CanvasGroup>();
-            if (iconCanvasGroup == null)
-                iconCanvasGroup = iconImage.gameObject.AddComponent<CanvasGroup>();
-            originalIconParent = iconImage.transform.parent;
-            originalIconPosition = iconImage.transform.localPosition;
-        }
-        else
-        {
-            Debug.LogError($"[ItemSlotUI] Slot {index}: iconImage é NULL!");
-        }
-    }
+        [Header("UI Elements")]
+        [SerializeField] private Image backgroundImage;
+        [SerializeField] private Image iconImage;
+        [SerializeField] private TextMeshProUGUI quantityText;
+        [SerializeField] private Image highlightImage;
 
-    public void SetItem(EquipmentData item, int quantity, int durability)
-    {
-        if (item == null || iconImage == null)
-        {
-            Clear();
-            return;
-        }
-        
-        Debug.Log($"[ItemSlotUI] Slot {slotIndex}: SetItem({item.itemName}, qty:{quantity})");
-        
-        iconImage.sprite = item.icon;
-        iconImage.color = Color.white;
-        iconImage.enabled = true;
-        iconImage.raycastTarget = true;
+        [Header("Cores")]
+        [SerializeField] private Color normalColor = new Color(1, 1, 1, 0.8f);
+        [SerializeField] private Color hoverColor = new Color(1, 1, 1, 1);
+        [SerializeField] private Color selectedColor = new Color(0.3f, 0.7f, 1f, 1f);
+        [SerializeField] private Color dragColor = new Color(1, 1, 1, 0.3f);
 
-        if (quantityText != null)
+        private int slotIndex;
+        private InventoryUI inventoryUI;
+        private bool isDragging = false;
+        private Vector3 originalIconPosition;
+        private Transform originalIconParent;
+        private CanvasGroup iconCanvasGroup;
+
+        // ✅ Double-click detection
+        private float lastClickTime = -1f;
+        private const float DOUBLE_CLICK_THRESHOLD = 0.3f;
+
+        public int SlotIndex => slotIndex;
+        public Image IconImage => iconImage;
+        public bool HasItem => iconImage != null && iconImage.sprite != null && iconImage.enabled;
+
+        public void Initialize(int index, InventoryUI ui)
         {
-            if (quantity > 1)
+            slotIndex = index;
+            inventoryUI = ui;
+
+            Debug.Log($"[ItemSlotUI] Slot {index} inicializado");
+
+            if (iconImage != null)
             {
-                quantityText.text = quantity.ToString();
-                quantityText.gameObject.SetActive(true);
+                iconCanvasGroup = iconImage.GetComponent<CanvasGroup>();
+                if (iconCanvasGroup == null)
+                    iconCanvasGroup = iconImage.gameObject.AddComponent<CanvasGroup>();
+                originalIconParent = iconImage.transform.parent;
+                originalIconPosition = iconImage.transform.localPosition;
+            }
+        }
+
+        // ✅ CORRIGIDO: Recebe ItemData (não só EquipmentData)
+        public void SetItem(ItemData item, int quantity, int durability)
+        {
+            if (item == null || iconImage == null)
+            {
+                Clear();
+                return;
+            }
+
+            Debug.Log($"[ItemSlotUI] Slot {slotIndex}: SetItem({item.itemName}, qty:{quantity})");
+
+            iconImage.sprite = item.icon;
+            iconImage.color = Color.white;
+            iconImage.enabled = true;
+            iconImage.raycastTarget = true;
+
+            if (quantityText != null)
+            {
+                if (quantity > 1)
+                {
+                    quantityText.text = quantity.ToString();
+                    quantityText.gameObject.SetActive(true);
+                }
+                else
+                {
+                    quantityText.gameObject.SetActive(false);
+                }
+            }
+        }
+
+        public void Clear()
+        {
+            if (iconImage != null)
+            {
+                iconImage.sprite = null;
+                iconImage.color = Color.clear;
+                iconImage.enabled = false;
+                iconImage.raycastTarget = false;
+            }
+            if (quantityText != null)
+                quantityText.gameObject.SetActive(false);
+        }
+
+        public void SetSelected(bool selected)
+        {
+            if (backgroundImage != null)
+                backgroundImage.color = selected ? selectedColor : normalColor;
+        }
+
+        public void SetDragging(bool dragging)
+        {
+            if (backgroundImage != null)
+                backgroundImage.color = dragging ? dragColor : normalColor;
+            if (iconCanvasGroup != null)
+                iconCanvasGroup.alpha = dragging ? 0.5f : 1f;
+        }
+
+        #region Pointer Events
+
+        public void OnPointerClick(PointerEventData eventData)
+        {
+            float timeSinceLastClick = Time.time - lastClickTime;
+            lastClickTime = Time.time;
+
+            bool isDoubleClick = (timeSinceLastClick <= DOUBLE_CLICK_THRESHOLD) && HasItem;
+
+            Debug.Log($"[ItemSlotUI] Click slot {slotIndex}, double: {isDoubleClick}");
+
+            if (isDoubleClick)
+            {
+                inventoryUI?.OnSlotDoubleClick(slotIndex);
             }
             else
             {
-                quantityText.gameObject.SetActive(false);
+                inventoryUI?.OnSlotSelected(slotIndex);
             }
         }
-    }
 
-    public void Clear()
-    {
-        if (iconImage != null)
+        public void OnBeginDrag(PointerEventData eventData)
         {
-            iconImage.sprite = null;
-            iconImage.color = Color.clear;
-            iconImage.enabled = false;
+            Debug.Log($"[ItemSlotUI] OnBeginDrag slot {slotIndex}");
+
+            if (!HasItem || inventoryUI == null) return;
+
+            isDragging = true;
+            originalIconParent = iconImage.transform.parent;
+            originalIconPosition = iconImage.transform.localPosition;
+
+            if (inventoryUI.DragCanvas != null)
+            {
+                iconImage.transform.SetParent(inventoryUI.DragCanvas.transform);
+            }
+            else
+            {
+                iconImage.transform.SetParent(transform.root);
+            }
+
+            iconImage.transform.SetAsLastSibling();
             iconImage.raycastTarget = false;
+            SetDragging(true);
         }
-        if (quantityText != null)
-            quantityText.gameObject.SetActive(false);
-    }
 
-    public void SetSelected(bool selected)
-    {
-        if (backgroundImage != null)
-            backgroundImage.color = selected ? selectedColor : normalColor;
-    }
-
-    public void SetDragging(bool dragging)
-    {
-        if (backgroundImage != null)
-            backgroundImage.color = dragging ? dragColor : normalColor;
-        if (iconCanvasGroup != null)
-            iconCanvasGroup.alpha = dragging ? 0.5f : 1f;
-    }
-
-    #region Pointer Events
-
-    public void OnPointerClick(PointerEventData eventData)
-    {
-        // ✅ CORREÇÃO: Detecção manual de double-click
-        // eventData.clickCount buga quando IDragHandler está no mesmo objeto
-        float timeSinceLastClick = Time.time - lastClickTime;
-        lastClickTime = Time.time;
-
-        bool isDoubleClick = (timeSinceLastClick <= DOUBLE_CLICK_THRESHOLD) && HasItem;
-
-        Debug.Log($"[ItemSlotUI] OnPointerClick slot {slotIndex}, timeSinceLastClick: {timeSinceLastClick:F3}, isDoubleClick: {isDoubleClick}, HasItem: {HasItem}");
-
-        if (isDoubleClick)
+        public void OnDrag(PointerEventData eventData)
         {
-            Debug.Log($"[ItemSlotUI] ✅ DOUBLE-CLICK CONFIRMADO slot {slotIndex} → chamando OnSlotDoubleClick");
-            inventoryUI?.OnSlotDoubleClick(slotIndex);
+            if (!isDragging) return;
+            iconImage.transform.position = eventData.position;
         }
-        else
+
+        public void OnEndDrag(PointerEventData eventData)
         {
-            Debug.Log($"[ItemSlotUI] SINGLE-CLICK slot {slotIndex} → chamando OnSlotSelected");
-            inventoryUI?.OnSlotSelected(slotIndex);
-        }
-    }
+            if (!isDragging) return;
+            isDragging = false;
 
-    public void OnBeginDrag(PointerEventData eventData)
-    {
-        Debug.Log($"[ItemSlotUI] OnBeginDrag slot {slotIndex}, HasItem: {HasItem}, inventoryUI: {(inventoryUI != null ? "OK" : "NULL")}");
-        
-        if (!HasItem || inventoryUI == null) 
+            Debug.Log($"[ItemSlotUI] OnEndDrag slot {slotIndex}");
+
+            iconImage.transform.SetParent(originalIconParent);
+            iconImage.transform.localPosition = originalIconPosition;
+            iconImage.raycastTarget = true;
+            SetDragging(false);
+
+            // ✅ Detecta EquipmentSlot ou outro ItemSlot
+            var equipSlot = GetEquipmentSlotUnderMouse(eventData);
+            if (equipSlot != null)
+            {
+                inventoryUI?.OnSlotDraggedToEquipment(slotIndex, equipSlot.SlotType);
+                return;
+            }
+
+            var otherSlot = GetSlotUnderMouse(eventData);
+            if (otherSlot != null && otherSlot != this)
+            {
+                inventoryUI?.OnSlotDropped(slotIndex, otherSlot.slotIndex);
+                return;
+            }
+        }
+
+        public void OnDrop(PointerEventData eventData)
         {
-            Debug.LogWarning($"[ItemSlotUI] Drag BLOQUEADO! HasItem:{HasItem}, inventoryUI:{inventoryUI != null}");
-            return;
+            var draggedEquip = eventData.pointerDrag?.GetComponent<EquipmentSlotUI>();
+            if (draggedEquip != null)
+            {
+                inventoryUI?.OnEquipmentDraggedToInventory(draggedEquip.SlotType, slotIndex);
+            }
         }
-        
-        isDragging = true;
-        originalIconParent = iconImage.transform.parent;
-        originalIconPosition = iconImage.transform.localPosition;
 
-        if (inventoryUI.DragCanvas != null)
+        // ✅ TOOLTIP ADICIONADO
+        public void OnPointerEnter(PointerEventData eventData)
         {
-            iconImage.transform.SetParent(inventoryUI.DragCanvas.transform);
-            Debug.Log($"[ItemSlotUI] Ícone movido para DragCanvas");
+            if (!HasItem || inventoryUI == null) return;
+
+            if (backgroundImage != null)
+                backgroundImage.color = hoverColor;
+
+            // ✅ Mostra tooltip
+            Vector3 tooltipPos = iconImage.transform.position;
+            ItemData itemData = ItemDatabase.Instance?.GetItem(GetCurrentItemId());
+            inventoryUI.ShowTooltip(itemData, tooltipPos);
         }
-        else
+
+        public void OnPointerExit(PointerEventData eventData)
         {
-            iconImage.transform.SetParent(transform.root);
-            Debug.LogWarning($"[ItemSlotUI] DragCanvas NULL, usando root");
+            if (!isDragging && backgroundImage != null)
+                backgroundImage.color = normalColor;
+
+            // ✅ Esconde tooltip
+            inventoryUI?.HideTooltip();
         }
 
-        iconImage.transform.SetAsLastSibling();
-        iconImage.raycastTarget = false;
-        SetDragging(true);
-    }
+        #endregion
 
-    public void OnDrag(PointerEventData eventData)
-    {
-        if (!isDragging) return;
-        iconImage.transform.position = eventData.position;
-    }
+        #region Helpers
 
-    public void OnEndDrag(PointerEventData eventData)
-    {
-        if (!isDragging) return;
-        isDragging = false;
-        
-        Debug.Log($"[ItemSlotUI] OnEndDrag slot {slotIndex}");
-        
-        iconImage.transform.SetParent(originalIconParent);
-        iconImage.transform.localPosition = originalIconPosition;
-        iconImage.raycastTarget = true;
-        SetDragging(false);
-
-        var equipSlot = GetEquipmentSlotUnderMouse(eventData);
-        if (equipSlot != null)
+        EquipmentSlotUI GetEquipmentSlotUnderMouse(PointerEventData eventData)
         {
-            Debug.Log($"[ItemSlotUI] Drop em EquipmentSlot: {equipSlot.SlotType}");
-            inventoryUI?.OnSlotDraggedToEquipment(slotIndex, equipSlot.SlotType);
-            return;
+            var results = new List<RaycastResult>();
+            EventSystem.current.RaycastAll(eventData, results);
+            foreach (var result in results)
+            {
+                var equipSlot = result.gameObject.GetComponent<EquipmentSlotUI>();
+                if (equipSlot != null) return equipSlot;
+            }
+            return null;
         }
 
-        var otherSlot = GetSlotUnderMouse(eventData);
-        if (otherSlot != null && otherSlot != this)
+        ItemSlotUI GetSlotUnderMouse(PointerEventData eventData)
         {
-            Debug.Log($"[ItemSlotUI] Drop no slot {otherSlot.slotIndex}");
-            inventoryUI?.OnSlotDropped(slotIndex, otherSlot.slotIndex);
-            return;
+            var results = new List<RaycastResult>();
+            EventSystem.current.RaycastAll(eventData, results);
+            foreach (var result in results)
+            {
+                var slot = result.gameObject.GetComponent<ItemSlotUI>();
+                if (slot != null) return slot;
+            }
+            return null;
         }
-        
-        Debug.Log($"[ItemSlotUI] Drop em lugar inválido");
-    }
 
-    public void OnDrop(PointerEventData eventData)
-    {
-        var draggedEquip = eventData.pointerDrag?.GetComponent<EquipmentSlotUI>();
-        if (draggedEquip != null)
+        // ✅ Helper para tooltip
+        private int GetCurrentItemId()
         {
-            Debug.Log($"[ItemSlotUI] OnDrop: recebendo Equipment {draggedEquip.SlotType}");
-            inventoryUI?.OnEquipmentDraggedToInventory(draggedEquip.SlotType, slotIndex);
+            // Recupera do inventário atual
+            return inventoryUI != null ? 
+                inventoryUI.playerInventory?.GetSlot((ushort)slotIndex)?.ItemId ?? 0 : 0;
         }
+
+        #endregion
     }
-
-    public void OnPointerEnter(PointerEventData eventData)
-    {
-        if (!isDragging && backgroundImage != null)
-            backgroundImage.color = hoverColor;
-    }
-
-    public void OnPointerExit(PointerEventData eventData)
-    {
-        if (!isDragging && backgroundImage != null)
-            backgroundImage.color = normalColor;
-    }
-
-    #endregion
-
-    #region Helpers
-
-    EquipmentSlotUI GetEquipmentSlotUnderMouse(PointerEventData eventData)
-    {
-        var results = new List<RaycastResult>();
-        EventSystem.current.RaycastAll(eventData, results);
-        foreach (var result in results)
-        {
-            var equipSlot = result.gameObject.GetComponent<EquipmentSlotUI>();
-            if (equipSlot != null) return equipSlot;
-        }
-        return null;
-    }
-
-    ItemSlotUI GetSlotUnderMouse(PointerEventData eventData)
-    {
-        var results = new List<RaycastResult>();
-        EventSystem.current.RaycastAll(eventData, results);
-        foreach (var result in results)
-        {
-            var slot = result.gameObject.GetComponent<ItemSlotUI>();
-            if (slot != null) return slot;
-        }
-        return null;
-    }
-
-    #endregion
 }

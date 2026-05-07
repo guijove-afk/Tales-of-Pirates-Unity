@@ -1,4 +1,7 @@
 using UnityEngine;
+using TOP.Core; 
+using TOP.Inventory;    
+using TOP.Player;
 
 public class DebugGiveItem : MonoBehaviour
 {
@@ -14,7 +17,7 @@ public class DebugGiveItem : MonoBehaviour
         var db = ItemDatabase.Instance;
         if (db == null)
         {
-            Debug.LogError("[DebugGiveItem] ❌ ItemDatabase.Instance é NULL!");
+            Debug.LogError("[DebugGiveItem] ❌ ItemDatabase.Instance é NULL! Crie um ItemDatabase.asset!");
             return;
         }
 
@@ -47,7 +50,8 @@ public class DebugGiveItem : MonoBehaviour
 
     private void GiveItem()
     {
-        PlayerInventory playerInventory = FindAnyObjectByType<PlayerInventory>();
+        // TROCADO: FindAnyObjectByType para FindObjectOfType para maior compatibilidade
+        PlayerInventory playerInventory = Object.FindObjectOfType<PlayerInventory>(); 
 
         if (playerInventory == null)
         {
@@ -56,17 +60,15 @@ public class DebugGiveItem : MonoBehaviour
         }
 
         Debug.Log("[DebugGiveItem] Tentando adicionar item " + itemId + "...");
-        Debug.Log("[DebugGiveItem] PlayerInventory: " + playerInventory.name + " | isServer: " + playerInventory.isServer);
 
+        // Se estivermos no Servidor (ou Host)
         if (playerInventory.isServer)
         {
-            // 🔧 CORREÇÃO: AddItem retorna void, não bool
-            // Verificar se tem slot vazio antes
-            int emptySlot = playerInventory.FindEmptySlot();
+            int emptySlot = playerInventory.FindEmptySlot();    
             if (emptySlot != -1)
             {
-                playerInventory.AddItem(itemId, quantity);
-                Debug.Log("[DebugGiveItem] ✅ Item " + itemId + " adicionado ao inventário!");
+                playerInventory.AddItem(itemId, quantity, (ushort)emptySlot);
+                Debug.Log("[DebugGiveItem] ✅ Servidor: Item " + itemId + " adicionado no slot " + emptySlot + "!");
             }
             else
             {
@@ -75,7 +77,7 @@ public class DebugGiveItem : MonoBehaviour
         }
         else
         {
-            // 🔧 CORREÇÃO: No cliente, usar CmdAddItemDebug (Command)
+            // Se for um Cliente, envia o comando para o servidor
             Debug.Log("[DebugGiveItem] Enviando comando para servidor...");
             playerInventory.CmdAddItemDebug(itemId, quantity);
         }

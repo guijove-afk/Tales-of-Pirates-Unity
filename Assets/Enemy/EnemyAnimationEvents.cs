@@ -1,5 +1,6 @@
 using UnityEngine;
 using Mirror;
+using TOP.Core;
 
 /// <summary>
 /// Deve ficar no mesmo GameObject do <see cref="Animator"/> que toca Attack1 (ex.: filho Mob1).

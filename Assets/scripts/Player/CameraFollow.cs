@@ -1,6 +1,6 @@
 using UnityEngine;
 using Mirror;
-
+using TOP.Systems;  // ✅ para CameraController
 public class CameraFollow : NetworkBehaviour
 {
     [Header("Seguimento")]
@@ -30,14 +30,16 @@ public class CameraFollow : NetworkBehaviour
 
     void Start()
     {
-        if (!isLocalPlayer) return;
+        // ✅ CORRIGIDO: Funciona para local E owned players
+        if (!isLocalPlayer && !isOwned) return;
 
         currentZoom = Mathf.Clamp(offset.magnitude, minZoom, maxZoom);
     }
 
     void LateUpdate()
     {
-        if (!isLocalPlayer) return;
+        // ✅ CORRIGIDO
+        if (!isLocalPlayer && !isOwned) return;
 
         if (camTransform == null)
         {
@@ -51,6 +53,7 @@ public class CameraFollow : NetworkBehaviour
                 controller.enabled = false;
         }
 
+        // Resto do código EXATAMENTE IGUAL ao seu...
         float scrollInput = Input.GetAxis("Mouse ScrollWheel");
         if (scrollInput != 0f)
         {

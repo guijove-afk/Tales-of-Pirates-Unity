@@ -4,6 +4,8 @@ using UnityEngine.AI;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using TOP.Core;
+using TOP.Player;
 
 public class EnemyStats : NetworkBehaviour, ICharacterStats
 {

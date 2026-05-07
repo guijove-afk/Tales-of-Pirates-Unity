@@ -8,6 +8,7 @@ using TOP.Data;
 using TOP.Gameplay;
 using TOP.Core;
 using TOP.Network;
+using TOP.Player;
 
 namespace TOP.Network
 {
@@ -39,7 +40,20 @@ namespace TOP.Network
             Instance = this;
             DontDestroyOnLoad(gameObject);
         }
+// Adicione isto dentro do seu TOPNetworkManager.cs
+public override void OnServerAddPlayer(Mirror.NetworkConnectionToClient conn)
+{
+    // A posição que você escolheu
+    Vector3 spawnPos = new Vector3(40.25f, 30.8f, 19.36f);
 
+    // Instancia o prefab do jogador nessa posição
+    GameObject player = Instantiate(playerPrefab, spawnPos, Quaternion.identity);
+
+    // Finaliza a criação do jogador no servidor do Mirror
+    Mirror.NetworkServer.AddPlayerForConnection(conn, player);
+    
+    Debug.Log($"[NetworkManager] Player nasceu em: {spawnPos}");
+}
         public override void OnStartServer()
         {
             base.OnStartServer();
@@ -286,7 +300,17 @@ namespace TOP.Network
                 return;
             }
 
-            controller.InitializeFromDatabase(charData);
+// No TOPNetworkManager.cs, perto da linha 291
+CharacterDbModel dbModel = new CharacterDbModel();
+
+if (charData != null) 
+{
+
+    // Preencha outros campos se necessário...
+}
+
+// Agora passamos o tipo CORRETO para a função
+controller.InitializeFromDatabase(dbModel);
 
             playerObj.transform.position = new Vector3(charData.PosX, charData.PosY, charData.PosZ);
             playerObj.transform.rotation = Quaternion.Euler(0, charData.RotationY, 0);

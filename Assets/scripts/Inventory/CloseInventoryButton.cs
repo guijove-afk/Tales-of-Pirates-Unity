@@ -1,13 +1,17 @@
 using UnityEngine;
 using UnityEngine.UI;
 
-[RequireComponent(typeof(Button))]
-public class CloseInventoryButton : MonoBehaviour
+namespace TOP.Inventory
 {
-    void Start()
+
+    [RequireComponent(typeof(Button))]
+    public class CloseInventoryButton : MonoBehaviour
     {
-        GetComponent<Button>().onClick.AddListener(() => {
-            InventoryUI.Instance?.CloseInventory();
-        });
+        void Start()
+        {
+            GetComponent<Button>().onClick.AddListener(() => {
+                InventoryUI.Instance?.CloseInventory();
+            });
+        }
     }
 }

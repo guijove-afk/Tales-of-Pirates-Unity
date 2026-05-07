@@ -1,11 +1,11 @@
 using UnityEngine;
 using Mirror;
-using TOP.Data;
-using TOP.Player;
-using TOP.Core;
-using TOP.UI;
-using TOP.Systems;
-using TOP.Network;
+using TOP.Player;  // ✅ Todos os componentes aqui
+using TOP.Core;    // ✅ ItemData, SkillData
+using TOP.Inventory; // ✅ ItemDatabase
+using System.Collections;
+using System.Linq;
+using TOP.UI; // ✅ UIManager para mensagens
 
 namespace TOP.Gameplay
 {
@@ -50,31 +50,39 @@ namespace TOP.Gameplay
             Combat = GetComponent<PlayerCombat>();
             Skills = GetComponent<PlayerSkills>();
             Animation = GetComponent<PlayerAnimation>();
-            Consumables = GetComponent<PlayerConsumables>();
+            // Consumables = GetComponent<PlayerConsumables>(); // ✅ Criaremos depois
         }
 
-        public override void OnStartLocalPlayer()
-        {
-            base.OnStartLocalPlayer();
+public override void OnStartLocalPlayer()
+{
+    base.OnStartLocalPlayer();
 
-            CameraFollow camFollow = Camera.main?.GetComponent<CameraFollow>();
-            if (camFollow != null)
-                camFollow.SetTarget(transform);
+    // ✅ CameraFollow no PLAYER (não na Main Camera)
+    CameraFollow camFollow = GetComponent<CameraFollow>();
+    if (camFollow != null)
+        camFollow.enabled = true;
 
-            UIManager uiManager = FindObjectOfType<UIManager>();
-            if (uiManager != null)
-                uiManager.SetupLocalPlayer(this);
-        }
+    UIManager.Instance?.SetupLocalPlayer(this);
+}
 
         public override void OnStartServer()
         {
             base.OnStartServer();
+
+            // ✅ DebugGiveItem inicial
+            StartCoroutine(GiveStarterItems());
         }
 
-        public override void OnStopServer()
+        // ✅ Dá itens iniciais para teste
+        IEnumerator GiveStarterItems()
         {
-            base.OnStopServer();
-            SaveToDatabase();
+            yield return new WaitForSeconds(1f);
+
+            Inventory.DebugGiveItem(1001, 99);  // Health Potion
+            Inventory.DebugGiveItem(1002, 1);   // Iron Sword
+            Skills.LearnSkill(1001, 1);         // Fireball skill
+
+            Debug.Log($"[PlayerController] Itens iniciais dados para {CharacterName}");
         }
 
         void Update()
@@ -86,70 +94,24 @@ namespace TOP.Gameplay
             }
         }
 
-        public void InitializeFromDatabase(CharacterData data)
-        {
-            CharacterId = data.Id;
-            AccountId = data.AccountId;
-            CharacterName = data.Name;
-            Job = data.Job;
-            Level = data.Level;
-            CurrentHp = data.CurrentHp;
-            CurrentMp = data.CurrentMp;
-            CurrentSp = data.CurrentSp;
-
-            if (Stats != null)
-            {
-                Stats.Initialize(data.BaseStr, data.BaseAgi, data.BaseCon, data.BaseSpr,
-                    data.MaxHp, data.MaxMp, data.MaxSp);
-                Stats.SetCurrentHpMpSp(data.CurrentHp, data.CurrentMp, data.CurrentSp);
-            }
-
-            if (Inventory != null && data.Inventory != null)
-            {
-                foreach (InventoryItemData item in data.Inventory)
-                {
-                    Inventory.AddItem(item.ItemId, item.Quantity, item.SlotIndex);
-                }
-            }
-
-            if (Skills != null && data.Skills != null)
-            {
-                foreach (CharacterSkillData skill in data.Skills)
-                {
-                    Skills.LearnSkill(skill.SkillId, skill.Level);
-                }
-            }
-        }
+[Server]
+public void InitializeFromDatabase(CharacterDbModel data) // Use o nome da classe que representa sua tabela
+{
+    // Por enquanto, mantemos o MOCK, mas o parâmetro resolve o erro de compilação
+    CharacterId = netId; 
+    CharacterName = data != null ? data.name : $"Player{netId}";
+    
+    // ... restante do seu código de inicialização
+    Debug.Log($"[PlayerController] Pronto para carregar dados de: {CharacterName}");
+}
 
         [Server]
         public void SaveToDatabase()
         {
             if (Stats == null) return;
 
-            CharacterData data = new CharacterData
-            {
-                Id = CharacterId,
-                AccountId = AccountId,
-                Name = CharacterName,
-                Job = Job,
-                Level = Level,
-                CurrentHp = Stats.CurrentHp,
-                CurrentMp = Stats.CurrentMp,
-                CurrentSp = Stats.CurrentSp,
-                PosX = transform.position.x,
-                PosY = transform.position.y,
-                PosZ = transform.position.z,
-                RotationY = transform.rotation.eulerAngles.y,
-                BaseStr = Stats.BaseStrength,
-                BaseAgi = Stats.BaseAgility,
-                BaseCon = Stats.BaseConstitution,
-                BaseSpr = Stats.BaseSpirit,
-                MaxHp = Stats.MaxHp,
-                MaxMp = Stats.MaxMp,
-                MaxSp = Stats.MaxSp
-            };
-
-            _ = TOP.Services.DatabaseService.Instance.SaveCharacterAsync(data);
+            Debug.Log($"[PlayerController] Salvando {CharacterName}: HP={Stats.CurrentHp}/{Stats.MaxHp}");
+            // TODO: DatabaseService real
         }
 
         [Command]
@@ -167,10 +129,10 @@ namespace TOP.Gameplay
         }
 
         [Command]
-        public void CmdUseSkill(int skillId, Vector3 targetPosition, NetworkIdentity target)
+        public void CmdUseSkill(int skillId, Vector3 targetPos, NetworkIdentity target)
         {
             if (Skills != null)
-                Skills.UseSkill(skillId, targetPosition, target);
+                Skills.UseSkill(skillId, targetPos, target);
         }
 
         [Command]
@@ -183,40 +145,41 @@ namespace TOP.Gameplay
         [ClientRpc]
         public void RpcTakeDamage(int damage, Vector3 hitPosition)
         {
-            DamagePopupManager popupManager = FindObjectOfType<DamagePopupManager>();
-            if (popupManager != null)
-                popupManager.ShowDamage(damage, hitPosition, false);
+            // ✅ Popup simples no console (popup real depois)
+            Debug.Log($"<color=red>-{damage}</color> em {CharacterName}");
 
-            HitFlashEffect hitFlash = GetComponentInChildren<HitFlashEffect>();
-            if (hitFlash != null)
-                hitFlash.Flash();
+            // Hit flash (criaremos depois)
+            // GetComponentInChildren<HitFlashEffect>()?.Flash();
         }
 
         [ClientRpc]
         public void RpcHeal(int amount)
         {
-            DamagePopupManager popupManager = FindObjectOfType<DamagePopupManager>();
-            if (popupManager != null)
-                popupManager.ShowHeal(amount, transform.position + Vector3.up * 2f);
+            Debug.Log($"<color=green>+{amount}</color> em {CharacterName}");
         }
 
         [ClientRpc]
         public void RpcLevelUp()
         {
             Level++;
-            LevelUpEffectManager effectManager = FindObjectOfType<LevelUpEffectManager>();
-            if (effectManager != null)
-                effectManager.PlayLevelUpEffect(transform.position);
+            Debug.Log($"<color=yellow>LEVEL UP! {CharacterName} agora nível {Level}</color>");
         }
 
         [ClientRpc]
         public void RpcShowMessage(string message, PlayerMessageType type)
         {
-            UIManager uiManager = FindObjectOfType<UIManager>();
-            if (uiManager != null)
-                uiManager.ShowMessage(message, type);
+            string color = type switch
+            {
+                PlayerMessageType.Info => "white",
+                PlayerMessageType.Warning => "yellow",
+                PlayerMessageType.Error => "red",
+                PlayerMessageType.Success => "green",
+                _ => "white"
+            };
+            Debug.Log($"[{type}] <color={color}>{message}</color>");
         }
 
+        // ✅ Chamado por PlayerStats
         [Server]
         public void Die()
         {
@@ -227,42 +190,42 @@ namespace TOP.Gameplay
         [ClientRpc]
         void RpcDie()
         {
-            Animation.PlayDeath();
-            Movement.enabled = false;
-            Combat.enabled = false;
+            Animation?.PlayDeath();
+            if (Movement != null) Movement.enabled = false;
+            if (Combat != null) Combat.enabled = false;
         }
 
         [Server]
-        void RespawnPlayer()
+        public void RespawnPlayer()
         {
             CurrentHp = Stats.MaxHp;
             CurrentMp = Stats.MaxMp;
             CurrentSp = Stats.MaxSp;
 
-            transform.position = Vector3.zero + Vector3.up;
+            transform.position = Vector3.zero + Vector3.up * 1.5f;  // ✅ Corrigido
 
             RpcRespawn();
+            Debug.Log($"[PlayerController] {CharacterName} ressuscitado!");
         }
 
         [ClientRpc]
         void RpcRespawn()
         {
-            Animation.PlayRespawn();
-            Movement.enabled = true;
-            Combat.enabled = true;
+            Animation?.PlayRespawn();
+            if (Movement != null) Movement.enabled = true;
+            if (Combat != null) Combat.enabled = true;
         }
 
         void OnDestroy()
         {
             if (isServer)
-            {
                 SaveToDatabase();
-            }
         }
-    }
 
-    public enum PlayerMessageType
-    {
-        Info, Warning, Error, Success
+        // ✅ Enum local
+        public enum PlayerMessageType
+        {
+            Info, Warning, Error, Success
+        }
     }
 }

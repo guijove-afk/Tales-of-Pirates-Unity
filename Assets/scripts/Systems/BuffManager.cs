@@ -2,231 +2,243 @@ using UnityEngine;
 using Mirror;
 using System;
 using System.Collections.Generic;
+using TOP.Core;
+using TOP.Player;
 
-public class BuffManager : NetworkBehaviour
+namespace TOP.Systems
 {
-    public readonly SyncList<ActiveBuff> activeBuffs = new SyncList<ActiveBuff>();
 
-    private PlayerStats stats;
-    private Dictionary<string, GameObject> buffEffects = new Dictionary<string, GameObject>();
-
-    public event Action<ActiveBuff> OnBuffAdded;
-    public event Action<ActiveBuff> OnBuffRemoved;
-    public event Action<ActiveBuff> OnBuffRefreshed;
-
-    void Awake()
+    public class BuffManager : NetworkBehaviour
     {
-        stats = GetComponent<PlayerStats>();
-    }
+        public readonly SyncList<ActiveBuff> activeBuffs = new SyncList<ActiveBuff>();
 
-    void Update()
-    {
-        if (!isServer) return;
+        private PlayerStats stats;
+        private Dictionary<string, GameObject> buffEffects = new Dictionary<string, GameObject>();
 
-        UpdateBuffs();
-    }
+        public event Action<ActiveBuff> OnBuffAdded;
+        public event Action<ActiveBuff> OnBuffRemoved;
+        public event Action<ActiveBuff> OnBuffRefreshed;
 
-    [Server]
-    private void UpdateBuffs()
-    {
-        List<int> expiredIndices = new List<int>();
-
-        for (int i = 0; i < activeBuffs.Count; i++)
+        void Awake()
         {
-            var buff = activeBuffs[i];
-            buff.remainingTime -= Time.deltaTime;
-
-            buff.tickTimer -= Time.deltaTime;
-            if (buff.tickTimer <= 0 && buff.tickInterval > 0)
-            {
-                buff.tickTimer = buff.tickInterval;
-                ApplyTickEffect(buff);
-            }
-
-            if (buff.remainingTime <= 0)
-            {
-                expiredIndices.Add(i);
-            }
-            else
-            {
-                activeBuffs[i] = buff;
-            }
+            stats = GetComponent<PlayerStats>();
         }
 
-        for (int i = expiredIndices.Count - 1; i >= 0; i--)
+        void Update()
         {
-            int index = expiredIndices[i];
-            var buff = activeBuffs[index];
-            RemoveBuff(index);
-        }
-    }
+            if (!isServer) return;
 
-    [Server]
-    public void AddBuff(string buffId, string sourceId, float duration, StatType statType, int value, bool isPercent = false)
-    {
-        for (int i = 0; i < activeBuffs.Count; i++)
+            UpdateBuffs();
+        }
+
+        [Server]
+        private void UpdateBuffs()
         {
-            if (activeBuffs[i].buffId == buffId)
+            List<int> expiredIndices = new List<int>();
+
+            for (int i = 0; i < activeBuffs.Count; i++)
             {
                 var buff = activeBuffs[i];
-                buff.remainingTime = duration;
-                activeBuffs[i] = buff;
-                OnBuffRefreshed?.Invoke(buff);
-                return;
+                buff.remainingTime -= Time.deltaTime;
+
+                buff.tickTimer -= Time.deltaTime;
+                if (buff.tickTimer <= 0 && buff.tickInterval > 0)
+                {
+                    buff.tickTimer = buff.tickInterval;
+                    ApplyTickEffect(buff);
+                }
+
+                if (buff.remainingTime <= 0)
+                {
+                    expiredIndices.Add(i);
+                }
+                else
+                {
+                    activeBuffs[i] = buff;
+                }
+            }
+
+            for (int i = expiredIndices.Count - 1; i >= 0; i--)
+            {
+                int index = expiredIndices[i];
+                var buff = activeBuffs[index];
+                RemoveBuff(index);
             }
         }
 
-        ActiveBuff newBuff = new ActiveBuff
+        [Server]
+        public void AddBuff(string buffId, string sourceId, float duration, StatType statType, int value, bool isPercent = false)
         {
-            buffId = buffId,
-            sourceId = sourceId,
-            remainingTime = duration,
-            totalDuration = duration,
-            statType = statType,
-            value = value,
-            isPercent = isPercent,
-            tickInterval = 0,
-            tickTimer = 0
-        };
+            for (int i = 0; i < activeBuffs.Count; i++)
+            {
+                if (activeBuffs[i].buffId == buffId)
+                {
+                    var buff = activeBuffs[i];
+                    buff.remainingTime = duration;
+                    activeBuffs[i] = buff;
+                    OnBuffRefreshed?.Invoke(buff);
+                    return;
+                }
+            }
 
-        activeBuffs.Add(newBuff);
-        ApplyBuffEffect(newBuff);
-        OnBuffAdded?.Invoke(newBuff);
-    }
+            ActiveBuff newBuff = new ActiveBuff
+            {
+                buffId = buffId,
+                sourceId = sourceId,
+                remainingTime = duration,
+                totalDuration = duration,
+                statType = statType,
+                value = value,
+                isPercent = isPercent,
+                tickInterval = 0,
+                tickTimer = 0
+            };
 
-    [Server]
-    public void AddDotHot(string buffId, string sourceId, float duration, float tickInterval, int tickValue, bool isHeal)
-    {
-        ActiveBuff newBuff = new ActiveBuff
-        {
-            buffId = buffId,
-            sourceId = sourceId,
-            remainingTime = duration,
-            totalDuration = duration,
-            statType = isHeal ? StatType.HP : StatType.HP,
-            value = tickValue,
-            isPercent = false,
-            tickInterval = tickInterval,
-            tickTimer = tickInterval,
-            isDot = !isHeal,
-            isHot = isHeal
-        };
-
-        activeBuffs.Add(newBuff);
-        OnBuffAdded?.Invoke(newBuff);
-    }
-
-    [Server]
-    private void ApplyBuffEffect(ActiveBuff buff)
-    {
-        StatModifier modifier = new StatModifier
-        {
-            statType = buff.statType,
-            value = buff.value,
-            isPercent = buff.isPercent,
-            sourceId = buff.buffId,
-            duration = buff.totalDuration
-        };
-
-        stats.AddModifier(modifier);
-    }
-
-    [Server]
-    private void ApplyTickEffect(ActiveBuff buff)
-    {
-        if (buff.isHot)
-        {
-            stats.Heal(buff.value);
-        }
-        else if (buff.isDot)
-        {
-            stats.TakeTrueDamage(buff.value, 0);
-        }
-    }
-
-    [Server]
-    private void RemoveBuff(int index)
-    {
-        if (index < 0 || index >= activeBuffs.Count) return;
-
-        var buff = activeBuffs[index];
-
-        StatModifier modifier = new StatModifier
-        {
-            statType = buff.statType,
-            value = buff.value,
-            isPercent = buff.isPercent,
-            sourceId = buff.buffId
-        };
-        stats.RemoveModifier(modifier);
-
-        if (buffEffects.ContainsKey(buff.buffId))
-        {
-            Destroy(buffEffects[buff.buffId]);
-            buffEffects.Remove(buff.buffId);
+            activeBuffs.Add(newBuff);
+            ApplyBuffEffect(newBuff);
+            OnBuffAdded?.Invoke(newBuff);
         }
 
-        OnBuffRemoved?.Invoke(buff);
-        activeBuffs.RemoveAt(index);
-    }
-
-    [Server]
-    public void RemoveBuffsBySource(string sourceId)
-    {
-        for (int i = activeBuffs.Count - 1; i >= 0; i--)
+        [Server]
+        public void AddDotHot(string buffId, string sourceId, float duration, float tickInterval, int tickValue, bool isHeal)
         {
-            if (activeBuffs[i].sourceId == sourceId)
+            ActiveBuff newBuff = new ActiveBuff
+            {
+                buffId = buffId,
+                sourceId = sourceId,
+                remainingTime = duration,
+                totalDuration = duration,
+                statType = isHeal ? StatType.HP : StatType.HP,
+                value = tickValue,
+                isPercent = false,
+                tickInterval = tickInterval,
+                tickTimer = tickInterval,
+                isDot = !isHeal,
+                isHot = isHeal
+            };
+
+            activeBuffs.Add(newBuff);
+            OnBuffAdded?.Invoke(newBuff);
+        }
+
+        [Server]
+        private void ApplyBuffEffect(ActiveBuff buff)
+        {
+            StatModifier modifier = new StatModifier
+            {
+                statType = buff.statType,
+                value = buff.value,
+                isPercent = buff.isPercent,
+                sourceId = buff.buffId,
+                duration = buff.totalDuration
+            };
+
+            stats.AddModifier(modifier);
+        }
+
+        [Server]
+        private void ApplyTickEffect(ActiveBuff buff)
+        {
+            if (buff.isHot)
+            {
+                stats.Heal(buff.value);
+            }
+            else if (buff.isDot)
+            {
+                stats.TakeTrueDamage(buff.value, 0);
+            }
+        }
+
+        [Server]
+        private void RemoveBuff(int index)
+        {
+            if (index < 0 || index >= activeBuffs.Count) return;
+
+            var buff = activeBuffs[index];
+
+            StatModifier modifier = new StatModifier
+            {
+                statType = buff.statType,
+                value = buff.value,
+                isPercent = buff.isPercent,
+                sourceId = buff.buffId
+            };
+            stats.RemoveModifier(modifier);
+
+            if (buffEffects.ContainsKey(buff.buffId))
+            {
+                Destroy(buffEffects[buff.buffId]);
+                buffEffects.Remove(buff.buffId);
+            }
+
+            OnBuffRemoved?.Invoke(buff);
+            activeBuffs.RemoveAt(index);
+        }
+
+        [Server]
+        public void RemoveBuffsBySource(string sourceId)
+        {
+            for (int i = activeBuffs.Count - 1; i >= 0; i--)
+            {
+                if (activeBuffs[i].sourceId == sourceId)
+                {
+                    RemoveBuff(i);
+                }
+            }
+        }
+
+        [Server]
+        public void RemoveAllBuffs()
+        {
+            for (int i = activeBuffs.Count - 1; i >= 0; i--)
             {
                 RemoveBuff(i);
             }
         }
-    }
 
-    [Server]
-    public void RemoveAllBuffs()
+        [Server]
+    public void ApplyBuff(uint targetNetId, string buffId, int value, float duration)
     {
-        for (int i = activeBuffs.Count - 1; i >= 0; i--)
-        {
-            RemoveBuff(i);
-        }
+        AddBuff(buffId, buffId, duration, StatType.HP, value, false);
     }
 
     public bool HasBuff(string buffId)
-    {
-        foreach (var buff in activeBuffs)
         {
-            if (buff.buffId == buffId) return true;
+            foreach (var buff in activeBuffs)
+            {
+                if (buff.buffId == buffId) return true;
+            }
+            return false;
         }
-        return false;
-    }
 
-    public float GetBuffRemainingTime(string buffId)
-    {
-        foreach (var buff in activeBuffs)
+        public float GetBuffRemainingTime(string buffId)
         {
-            if (buff.buffId == buffId) return buff.remainingTime;
+            foreach (var buff in activeBuffs)
+            {
+                if (buff.buffId == buffId) return buff.remainingTime;
+            }
+            return 0;
         }
-        return 0;
+
+        public IReadOnlyList<ActiveBuff> GetActiveBuffs()
+        {
+            return activeBuffs;
+        }
     }
 
-    public IReadOnlyList<ActiveBuff> GetActiveBuffs()
+    [System.Serializable]
+    public struct ActiveBuff : Mirror.NetworkMessage
     {
-        return activeBuffs;
+        public string buffId;
+        public string sourceId;
+        public float remainingTime;
+        public float totalDuration;
+        public StatType statType;
+        public int value;
+        public bool isPercent;
+        public float tickInterval;
+        public float tickTimer;
+        public bool isDot;
+        public bool isHot;
     }
-}
-
-[System.Serializable]
-public struct ActiveBuff : Mirror.NetworkMessage
-{
-    public string buffId;
-    public string sourceId;
-    public float remainingTime;
-    public float totalDuration;
-    public StatType statType;
-    public int value;
-    public bool isPercent;
-    public float tickInterval;
-    public float tickTimer;
-    public bool isDot;
-    public bool isHot;
 }

@@ -1,15 +1,27 @@
 using System;
 using Mirror;
 
-[Serializable]
-public struct InventoryItem : NetworkMessage
+namespace TOP.Inventory
 {
-    public int itemId;      // 0 = slot vazio
-    public int quantity;
-    public int durability;
-    public int refineLevel;
+    [Serializable]
+    public class InventoryItem
+    {
+        // Propriedades PascalCase (usadas pelo sistema namespaced)
+        public int ItemId;
+        public int Quantity;
+        public ushort SlotIndex;
+        public int Durability;
+        public int RefineLevel;
+        public bool IsEquipped;
 
-    public bool IsEmpty => itemId == 0;
+        // Aliases camelCase para compatibilidade com codigo legado
+        public int itemId { get => ItemId; set => ItemId = value; }
+        public int quantity { get => Quantity; set => Quantity = value; }
+        public int durability { get => Durability; set => Durability = value; }
+        public int refineLevel { get => RefineLevel; set => RefineLevel = value; }
 
-    public static InventoryItem Empty => new InventoryItem { itemId = 0, quantity = 0, durability = -1, refineLevel = 0 };
+        public bool IsEmpty => ItemId == 0;
+
+        public static InventoryItem Empty => new InventoryItem { ItemId = 0, Quantity = 0, Durability = -1, RefineLevel = 0 };
+    }
 }

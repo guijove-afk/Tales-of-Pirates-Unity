@@ -3,7 +3,9 @@ using Mirror;
 using System;
 using System.Collections.Generic;
 using TOP.Inventory;
+using TOP.Systems;
 using TOP.Core;
+using TOP.Gameplay;
 
 namespace TOP.Player
 {
@@ -13,7 +15,13 @@ namespace TOP.Player
         private string _inventoryData = "";
 
         private readonly InventoryItem[] _slots = new InventoryItem[40];
+        
         public event Action OnInventoryChanged;
+        public event Action<int, InventoryItem> OnSlotChanged;
+        public event Action<InventoryItem, int> OnItemAdded;
+        public event Action<InventoryItem, int> OnItemRemoved;
+        
+        public int totalSlots => _slots.Length;
 
         void Awake()
         {
@@ -21,32 +29,112 @@ namespace TOP.Player
                 _slots[i] = null;
         }
 
-        [Server]
-        public void AddItem(int itemId, int quantity, ushort slotIndex)
-        {
-            if (slotIndex >= _slots.Length) return;
+        #region Getters & Helpers
 
-            _slots[slotIndex] = new InventoryItem
+        public int FindEmptySlot()
+        {
+            for (int i = 0; i < _slots.Length; i++)
             {
-                ItemId = itemId,
-                Quantity = quantity,
-                SlotIndex = slotIndex
-            };
+                if (_slots[i] == null) return i;
+            }
+            return -1;
+        }
+
+        public int FindItemSlot(int itemId)
+        {
+            for (int i = 0; i < _slots.Length; i++)
+            {
+                if (_slots[i] != null && _slots[i].ItemId == itemId) return i;
+            }
+            return -1;
+        }
+
+        public InventoryItem GetSlot(int index)
+        {
+            if (index < 0 || index >= _slots.Length) return null;
+            return _slots[index];
+        }
+
+        // CORREÇÃO: Apenas UMA função GetItem (Removida a duplicata da linha 191)
+        public InventoryItem GetItem(ushort slotIndex)
+        {
+            return GetSlot(slotIndex);
+        }
+
+        #endregion
+
+        #region Server Logic
+
+  [Server]
+public bool AddItem(int itemId, int quantity, ushort slotIndex = 0)
+{
+    // Se o slotIndex passado for 0, mas o slot estiver ocupado, 
+    // precisamos procurar um slot vazio automaticamente.
+    if (slotIndex == 0 && _slots[0] != null)
+    {
+        int empty = FindEmptySlot();
+        if (empty == -1) return false; // Inventário cheio
+        slotIndex = (ushort)empty;
+    }
+    else if (slotIndex >= _slots.Length || _slots[slotIndex] != null)
+    {
+        // Se o slot específico estiver fora ou ocupado e não for o padrão
+        int empty = FindEmptySlot();
+        if (empty == -1) return false;
+        slotIndex = (ushort)empty;
+    }
+
+    _slots[slotIndex] = new InventoryItem
+    {
+        ItemId = itemId,
+        Quantity = quantity,
+        SlotIndex = slotIndex
+    };
+
+    SerializeInventory();
+    return true; // Retorna true confirmando que adicionou
+}
+
+        [Server]
+        public void RemoveItem(ushort slotIndex, int quantity)
+        {
+            if (slotIndex >= _slots.Length || _slots[slotIndex] == null) return;
+
+            _slots[slotIndex].Quantity -= quantity;
+            if (_slots[slotIndex].Quantity <= 0)
+                _slots[slotIndex] = null;
 
             SerializeInventory();
         }
 
+        #endregion
+
+        #region Commands (Network)
+
         [Command]
         public void CmdAddItem(int itemId, int quantity)
         {
-            for (ushort i = 0; i < _slots.Length; i++)
+            int slot = FindEmptySlot();
+            if (slot != -1)
             {
-                if (_slots[i] == null)
-                {
-                    AddItem(itemId, quantity, i);
-                    return;
-                }
+                AddItem(itemId, quantity, (ushort)slot);
             }
+        }
+
+        [Command]
+        public void CmdAddItemDebug(int itemId, int quantity)
+        {
+            int slot = FindEmptySlot();
+            if (slot != -1)
+            {
+                AddItem(itemId, quantity, (ushort)slot);
+            }
+        }
+
+        [Command]
+        public void CmdRemoveItemDebug(ushort slotIndex, int quantity)
+        {
+            RemoveItem(slotIndex, quantity);
         }
 
         [Command]
@@ -56,12 +144,10 @@ namespace TOP.Player
 
             InventoryItem temp = _slots[toSlot];
             _slots[toSlot] = _slots[fromSlot];
-            if (_slots[toSlot] != null)
-                _slots[toSlot].SlotIndex = toSlot;
+            if (_slots[toSlot] != null) _slots[toSlot].SlotIndex = toSlot;
 
             _slots[fromSlot] = temp;
-            if (_slots[fromSlot] != null)
-                _slots[fromSlot].SlotIndex = fromSlot;
+            if (_slots[fromSlot] != null) _slots[fromSlot].SlotIndex = fromSlot;
 
             SerializeInventory();
         }
@@ -84,8 +170,8 @@ namespace TOP.Player
             InventoryItem item = _slots[slotIndex];
             if (item == null || item.Quantity < quantity) return;
 
-            WorldItemManager worldItemManager = FindObjectOfType<WorldItemManager>();
-            if (worldItemManager != null)
+            WorldItemManager worldItemManager = GameObject.FindAnyObjectByType<WorldItemManager>();   
+            if (worldItemManager != null)   
             {
                 worldItemManager.SpawnWorldItem(item.ItemId, quantity, dropPosition);
             }
@@ -97,6 +183,7 @@ namespace TOP.Player
             SerializeInventory();
         }
 
+        // CORREÇÃO: Unificadas as funções CmdUseItem em uma só (ushort)
         [Command]
         public void CmdUseItem(ushort slotIndex)
         {
@@ -107,22 +194,34 @@ namespace TOP.Player
             }
         }
 
-        [Server]
-        public void RemoveItem(ushort slotIndex, int quantity)
+        [Command]
+        public void CmdUnequipItem(EquipmentSlot slot)
         {
-            if (slotIndex >= _slots.Length || _slots[slotIndex] == null) return;
-
-            _slots[slotIndex].Quantity -= quantity;
-            if (_slots[slotIndex].Quantity <= 0)
-                _slots[slotIndex] = null;
-
-            SerializeInventory();
+            PlayerEquipment equipment = GetComponent<PlayerEquipment>();
+            if (equipment != null)
+            {
+                equipment.UnequipItem(slot);
+            }
         }
 
-        public InventoryItem GetItem(ushort slotIndex)
+        [Command]
+        public void CmdPickupWorldItem(NetworkIdentity worldItemIdentity)
         {
-            if (slotIndex >= _slots.Length) return null;
-            return _slots[slotIndex];
+            WorldItem worldItem = worldItemIdentity?.GetComponent<WorldItem>();
+            if (worldItem != null)
+            {
+                worldItem.CmdPickup();
+            }
+        }
+
+        #endregion
+
+        #region Utility
+
+        public void DebugGiveItem(int itemId, int quantity)
+        {
+            if (isLocalPlayer)
+                CmdAddItemDebug(itemId, quantity);
         }
 
         [Server]
@@ -143,5 +242,7 @@ namespace TOP.Player
         {
             OnInventoryChanged?.Invoke();
         }
+
+        #endregion
     }
 }

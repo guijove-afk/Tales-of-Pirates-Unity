@@ -1,6 +1,9 @@
 using UnityEngine;
 using UnityEngine.UI;
+using TOP.Core;
 using TMPro;
+using TOP.Inventory;  // ✅ ItemSlotUI, EquipmentSlotUI
+
 
 [ExecuteInEditMode]
 public class InventoryUICreator : MonoBehaviour

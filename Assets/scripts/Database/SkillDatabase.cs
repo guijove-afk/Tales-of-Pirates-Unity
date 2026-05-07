@@ -1,79 +1,84 @@
 using UnityEngine;
 using System.Collections.Generic;
+using TOP.Core;
 
-public class SkillDatabase : MonoBehaviour
+namespace TOP.Database
 {
-    public static SkillDatabase Instance { get; private set; }
 
-    [SerializeField] private List<SkillData> allSkills = new List<SkillData>();
-    private Dictionary<int, SkillData> skillDictionary = new Dictionary<int, SkillData>();
-
-    void Awake()
+    public class SkillDatabase : MonoBehaviour
     {
-        if (Instance != null && Instance != this)
+        public static SkillDatabase Instance { get; private set; }
+
+        [SerializeField] private List<SkillData> allSkills = new List<SkillData>();
+        private Dictionary<int, SkillData> skillDictionary = new Dictionary<int, SkillData>();
+
+        void Awake()
         {
-            Destroy(gameObject);
-            return;
+            if (Instance != null && Instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+            Instance = this;
+            DontDestroyOnLoad(gameObject);
+
+            BuildDictionary();
         }
-        Instance = this;
-        DontDestroyOnLoad(gameObject);
 
-        BuildDictionary();
-    }
-
-    private void BuildDictionary()
-    {
-        skillDictionary.Clear();
-        foreach (var skill in allSkills)
+        private void BuildDictionary()
         {
-            if (skill != null && skill.skillId > 0)
-                skillDictionary[skill.skillId] = skill;
+            skillDictionary.Clear();
+            foreach (var skill in allSkills)
+            {
+                if (skill != null && skill.skillId > 0)
+                    skillDictionary[skill.skillId] = skill;
+            }
         }
-    }
 
-    public SkillData GetSkill(int skillId)
-    {
-        return skillDictionary.TryGetValue(skillId, out var skill) ? skill : null;
-    }
-
-    public List<SkillData> GetSkillsByClass(CharacterClass characterClass)
-    {
-        List<SkillData> result = new List<SkillData>();
-        foreach (var skill in allSkills)
+        public SkillData GetSkill(int skillId)
         {
-            if (skill != null && (skill.requiredClass == CharacterClass.None || skill.requiredClass == characterClass))
-                result.Add(skill);
+            return skillDictionary.TryGetValue(skillId, out var skill) ? skill : null;
         }
-        return result;
-    }
 
-    public List<SkillData> GetSkillsByLevel(int level)
-    {
-        List<SkillData> result = new List<SkillData>();
-        foreach (var skill in allSkills)
+        public List<SkillData> GetSkillsByClass(CharacterClass characterClass)
         {
-            if (skill != null && skill.requiredLevel <= level)
-                result.Add(skill);
+            List<SkillData> result = new List<SkillData>();
+            foreach (var skill in allSkills)
+            {
+                if (skill != null && (skill.requiredClass == CharacterClass.None || skill.requiredClass == characterClass))
+                    result.Add(skill);
+            }
+            return result;
         }
-        return result;
-    }
 
-#if UNITY_EDITOR
-    [ContextMenu("Auto-Register All Skills")]
-    private void AutoRegister()
-    {
-        allSkills.Clear();
-        string[] guids = UnityEditor.AssetDatabase.FindAssets("t:SkillData");
-        foreach (string guid in guids)
+        public List<SkillData> GetSkillsByLevel(int level)
         {
-            string path = UnityEditor.AssetDatabase.GUIDToAssetPath(guid);
-            SkillData skill = UnityEditor.AssetDatabase.LoadAssetAtPath<SkillData>(path);
-            if (skill != null)
-                allSkills.Add(skill);
+            List<SkillData> result = new List<SkillData>();
+            foreach (var skill in allSkills)
+            {
+                if (skill != null && skill.requiredLevel <= level)
+                    result.Add(skill);
+            }
+            return result;
         }
-        UnityEditor.EditorUtility.SetDirty(this);
-        BuildDictionary();
-        Debug.Log($"[SkillDatabase] Registradas: {allSkills.Count} skills");
+
+    #if UNITY_EDITOR
+        [ContextMenu("Auto-Register All Skills")]
+        private void AutoRegister()
+        {
+            allSkills.Clear();
+            string[] guids = UnityEditor.AssetDatabase.FindAssets("t:SkillData");
+            foreach (string guid in guids)
+            {
+                string path = UnityEditor.AssetDatabase.GUIDToAssetPath(guid);
+                SkillData skill = UnityEditor.AssetDatabase.LoadAssetAtPath<SkillData>(path);
+                if (skill != null)
+                    allSkills.Add(skill);
+            }
+            UnityEditor.EditorUtility.SetDirty(this);
+            BuildDictionary();
+            Debug.Log($"[SkillDatabase] Registradas: {allSkills.Count} skills");
+        }
+    #endif
     }
-#endif
 }

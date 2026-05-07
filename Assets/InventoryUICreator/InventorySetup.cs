@@ -1,4 +1,7 @@
 using UnityEngine;
+using TOP.Player;
+using TOP.Core;
+using TOP.Inventory;
 using UnityEngine.UI;
 using TMPro;
 using System.Reflection;

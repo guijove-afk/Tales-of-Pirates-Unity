@@ -18072,10 +18072,11 @@ MonoBehaviour:
   evaluationMethod: 0
   evaluationInterval: 3
   timeInterpolationGui: 0
-  spawnPoints: []
-  gameScene: GameScene
+  autoSaveInterval: 60
+  serverInstanceId: server_01
   loginScene: LoginScene
-  maxCharactersPerAccount: 3
+  characterSelectScene: CharacterSelectScene
+  gameScene: GameScene
 --- !u!4 &206980103
 Transform:
   m_ObjectHideFlags: 0
@@ -91819,7 +91820,7 @@ MonoBehaviour:
   tooltipPanel: {fileID: 67916015}
   tooltipName: {fileID: 583523975}
   tooltipStats: {fileID: 285706202}
-  toggleKey: 105
+  toggleKey: 282
   dragCanvas: {fileID: 139779553}
   dragHandle: {fileID: 689460005}
 --- !u!114 &1022488669
@@ -133492,6 +133493,50 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 1681224996073516063, guid: bc51859a359a6124d9240419fc73341a, type: 3}
   m_PrefabInstance: {fileID: 1448144971}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &1448450962
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1448450964}
+  - component: {fileID: 1448450963}
+  m_Layer: 0
+  m_Name: PlayerSpawn_Start
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1448450963
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1448450962}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 41f84591ce72545258ea98cb7518d8b9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Mirror::Mirror.NetworkStartPosition
+--- !u!4 &1448450964
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1448450962}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 40.25, y: 30.8, z: 19.36}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &1449238281
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -195683,6 +195728,7 @@ SceneRoots:
   - {fileID: 780494861}
   - {fileID: 2064806912}
   - {fileID: 972218801}
+  - {fileID: 1448450964}
   - {fileID: 2916379587784403647}
   - {fileID: 1295665097}
   - {fileID: 2131462950}

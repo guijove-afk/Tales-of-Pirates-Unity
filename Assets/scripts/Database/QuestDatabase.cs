@@ -1,71 +1,76 @@
 using UnityEngine;
 using System.Collections.Generic;
+using TOP.Core;
 
-public class QuestDatabase : MonoBehaviour
+namespace TOP.Database
 {
-    public static QuestDatabase Instance { get; private set; }
 
-    [SerializeField] private List<QuestData> allQuests = new List<QuestData>();
-    private Dictionary<string, QuestData> questDictionary = new Dictionary<string, QuestData>();
-
-    void Awake()
+    public class QuestDatabase : MonoBehaviour
     {
-        if (Instance != null && Instance != this)
+        public static QuestDatabase Instance { get; private set; }
+
+        [SerializeField] private List<QuestData> allQuests = new List<QuestData>();
+        private Dictionary<string, QuestData> questDictionary = new Dictionary<string, QuestData>();
+
+        void Awake()
         {
-            Destroy(gameObject);
-            return;
-        }
-        Instance = this;
-        DontDestroyOnLoad(gameObject);
-
-        BuildDictionary();
-    }
-
-    private void BuildDictionary()
-    {
-        questDictionary.Clear();
-        foreach (var quest in allQuests)
-        {
-            if (quest != null && !string.IsNullOrEmpty(quest.questId))
-                questDictionary[quest.questId] = quest;
-        }
-    }
-
-    public QuestData GetQuest(string questId)
-    {
-        return questDictionary.TryGetValue(questId, out var quest) ? quest : null;
-    }
-
-    public List<QuestData> GetAvailableQuests(int playerLevel, string completedQuests)
-    {
-        List<QuestData> result = new List<QuestData>();
-        foreach (var quest in allQuests)
-        {
-            if (quest != null && quest.requiredLevel <= playerLevel)
+            if (Instance != null && Instance != this)
             {
-                if (string.IsNullOrEmpty(quest.prerequisiteQuest) || completedQuests.Contains(quest.prerequisiteQuest))
-                    result.Add(quest);
+                Destroy(gameObject);
+                return;
+            }
+            Instance = this;
+            DontDestroyOnLoad(gameObject);
+
+            BuildDictionary();
+        }
+
+        private void BuildDictionary()
+        {
+            questDictionary.Clear();
+            foreach (var quest in allQuests)
+            {
+                if (quest != null && !string.IsNullOrEmpty(quest.questId))
+                    questDictionary[quest.questId] = quest;
             }
         }
-        return result;
-    }
 
-#if UNITY_EDITOR
-    [ContextMenu("Auto-Register All Quests")]
-    private void AutoRegister()
-    {
-        allQuests.Clear();
-        string[] guids = UnityEditor.AssetDatabase.FindAssets("t:QuestData");
-        foreach (string guid in guids)
+        public QuestData GetQuest(string questId)
         {
-            string path = UnityEditor.AssetDatabase.GUIDToAssetPath(guid);
-            QuestData quest = UnityEditor.AssetDatabase.LoadAssetAtPath<QuestData>(path);
-            if (quest != null)
-                allQuests.Add(quest);
+            return questDictionary.TryGetValue(questId, out var quest) ? quest : null;
         }
-        UnityEditor.EditorUtility.SetDirty(this);
-        BuildDictionary();
-        Debug.Log($"[QuestDatabase] Registradas: {allQuests.Count} quests");
+
+        public List<QuestData> GetAvailableQuests(int playerLevel, string completedQuests)
+        {
+            List<QuestData> result = new List<QuestData>();
+            foreach (var quest in allQuests)
+            {
+                if (quest != null && quest.requiredLevel <= playerLevel)
+                {
+                    if (string.IsNullOrEmpty(quest.prerequisiteQuest) || completedQuests.Contains(quest.prerequisiteQuest))
+                        result.Add(quest);
+                }
+            }
+            return result;
+        }
+
+    #if UNITY_EDITOR
+        [ContextMenu("Auto-Register All Quests")]
+        private void AutoRegister()
+        {
+            allQuests.Clear();
+            string[] guids = UnityEditor.AssetDatabase.FindAssets("t:QuestData");
+            foreach (string guid in guids)
+            {
+                string path = UnityEditor.AssetDatabase.GUIDToAssetPath(guid);
+                QuestData quest = UnityEditor.AssetDatabase.LoadAssetAtPath<QuestData>(path);
+                if (quest != null)
+                    allQuests.Add(quest);
+            }
+            UnityEditor.EditorUtility.SetDirty(this);
+            BuildDictionary();
+            Debug.Log($"[QuestDatabase] Registradas: {allQuests.Count} quests");
+        }
+    #endif
     }
-#endif
 }
