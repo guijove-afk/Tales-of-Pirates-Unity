@@ -1,3 +1,4 @@
+// Assets/Scripts/Data/ItemDatabase.cs
 using UnityEngine;
 using System.Collections.Generic;
 
@@ -92,8 +93,6 @@ public class ItemDatabase : MonoBehaviour
         return GetItem(itemId)?.itemName ?? "Desconhecido";
     }
 
-    // ====== MÉTODOS ADICIONADOS PARA COMPATIBILIDADE ======
-
     public IReadOnlyCollection<ItemData> GetAllItems()
     {
         if (!isInitialized) Initialize();
@@ -111,4 +110,92 @@ public class ItemDatabase : MonoBehaviour
         if (!isInitialized) Initialize();
         return itemsById.TryGetValue(itemId, out item);
     }
+
+    // ========== NOVOS MÉTODOS PARA PLAYERCONTROLLER ==========
+
+    /// <summary>
+    /// Retorna o slot de equipamento para um item.
+    /// 0=Helmet, 1=Armor, 2=Weapon, 3=Shield, 4=Gloves, 5=Boots, 
+    /// 6=Cape, 7=Belt, 255=Não equipável
+    /// </summary>
+    public byte GetEquipSlot(int itemId)
+    {
+        var item = GetItem(itemId);
+        if (item == null) return 255;
+
+        if (item is EquipmentData equip)
+        {
+            return equip.slot switch
+            {
+                EquipmentSlot.Helmet => 0,
+                EquipmentSlot.Armor => 1,
+                EquipmentSlot.Weapon => 2,
+                EquipmentSlot.Shield => 3,
+                EquipmentSlot.Gloves => 4,
+                EquipmentSlot.Boots => 5,
+                EquipmentSlot.Cape => 6,
+                EquipmentSlot.Belt => 7,
+                _ => 255
+            };
+        }
+
+        return 255;
+    }
+
+    /// <summary>
+    /// Verifica se o item é stackável.
+    /// </summary>
+    public bool IsStackable(int itemId)
+    {
+        var item = GetItem(itemId);
+        return item?.IsStackable ?? false;
+    }
+
+    /// <summary>
+    /// Retorna quantidade máxima por stack.
+    /// </summary>
+    public int GetMaxStack(int itemId)
+    {
+        var item = GetItem(itemId);
+        return item?.maxStack ?? 1;
+    }
+
+    /// <summary>
+    /// Retorna stats do item para cálculos de equipamento.
+    /// </summary>
+    public ItemStats GetItemStats(int itemId)
+    {
+        var item = GetItem(itemId);
+        if (item == null) return new ItemStats();
+
+        var stats = new ItemStats();
+
+        if (item is EquipmentData equip)
+        {
+            stats.Str = equip.bonusSTR;
+            stats.Agi = equip.bonusAGI;
+            stats.Spr = equip.bonusINT; // INT no seu código = SPR no meu
+            stats.Hp = equip.bonusHP;
+            stats.Mp = equip.bonusMP;
+            stats.Defense = equip.bonusDefense;
+            stats.MinDamage = equip.bonusAttack;
+            stats.MaxDamage = equip.bonusMagicAttack;
+        }
+
+        return stats;
+    }
+}
+
+[System.Serializable]
+public class ItemStats
+{
+    public int Str;
+    public int Agi;
+    public int Con; // Não existe no seu, mas mantido para compatibilidade
+    public int Spr; // Mapeado para INT
+    public int Hp;
+    public int Mp;
+    public int Defense;
+    public int MinDamage;
+    public int MaxDamage;
 }
