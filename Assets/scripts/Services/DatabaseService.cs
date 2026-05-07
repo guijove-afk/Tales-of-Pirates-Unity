@@ -20,7 +20,6 @@ namespace TOP.Services
         [SerializeField] private int connectionTimeout = 30;
         
         private string _connectionString;
-        private bool _initialized;
         
         void Awake()
         {
@@ -37,15 +36,14 @@ namespace TOP.Services
         public async Task<(bool success, long accountId, string error)> ValidateLoginAsync(
             string username, string password)
         {
-            // TODO: Implementar quando MySqlConnector estiver instalado
             await Task.Yield();
             return (true, 1, null);
         }
         
-        public async Task<List<CharacterInfo>> GetCharacterListAsync(long accountId)
+        public async Task<List<CharacterPreviewData>> GetCharacterListAsync(long accountId)
         {
             await Task.Yield();
-            return new List<CharacterInfo>();
+            return new List<CharacterPreviewData>();
         }
         
         public async Task<(bool success, long charId, string error)> CreateCharacterAsync(
@@ -85,8 +83,8 @@ namespace TOP.Services
         }
     }
     
-    [System.Serializable]
-    public class CharacterInfo
+    [Serializable]
+    public class CharacterPreviewData
     {
         public long Id;
         public byte SlotIndex;

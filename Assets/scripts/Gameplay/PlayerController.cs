@@ -1,4 +1,5 @@
 // Assets/Scripts/Gameplay/PlayerController.cs
+using System;
 using Mirror;
 using UnityEngine;
 using UnityEngine.AI;
@@ -180,9 +181,9 @@ namespace TOP.Gameplay
             if (fromSlot > 47 || toSlot > 47) return;
 
             var fromItem = FindItemInSlot(fromSlot);
-            if (fromItem == null) return;
+            if (!fromItem.HasValue) return;
 
-            if (fromItem.IsEquipped)
+            if (fromItem.Value.IsEquipped)
             {
                 LogSecurityEvent($"Tentou mover item equipado slot {fromSlot}");
                 return;
@@ -190,30 +191,30 @@ namespace TOP.Gameplay
 
             var toItem = FindItemInSlot(toSlot);
 
-            if (toItem == null)
+            if (!toItem.HasValue)
             {
-                UpdateItemSlot(fromItem.DbId, toSlot);
+                UpdateItemSlot(fromItem.Value.DbId, toSlot);
             }
-            else if (fromItem.ItemId == toItem.ItemId && ItemDatabase.Instance.IsStackable(fromItem.ItemId))
+            else if (fromItem.Value.ItemId == toItem.Value.ItemId && ItemDatabase.Instance.IsStackable(fromItem.Value.ItemId))
             {
-                int maxStack = ItemDatabase.Instance.GetMaxStack(fromItem.ItemId);
-                int total = fromItem.Quantity + toItem.Quantity;
+                int maxStack = ItemDatabase.Instance.GetMaxStack(fromItem.Value.ItemId);
+                int total = fromItem.Value.Quantity + toItem.Value.Quantity;
 
                 if (total <= maxStack)
                 {
-                    UpdateItemQuantity(toItem.DbId, total);
-                    RemoveItem(fromItem.DbId);
+                    UpdateItemQuantity(toItem.Value.DbId, total);
+                    RemoveItem(fromItem.Value.DbId);
                 }
                 else
                 {
-                    UpdateItemQuantity(toItem.DbId, maxStack);
-                    UpdateItemQuantity(fromItem.DbId, total - maxStack);
+                    UpdateItemQuantity(toItem.Value.DbId, maxStack);
+                    UpdateItemQuantity(fromItem.Value.DbId, total - maxStack);
                 }
             }
             else
             {
-                UpdateItemSlot(fromItem.DbId, toSlot);
-                UpdateItemSlot(toItem.DbId, fromSlot);
+                UpdateItemSlot(fromItem.Value.DbId, toSlot);
+                UpdateItemSlot(toItem.Value.DbId, fromSlot);
             }
         }
 
@@ -223,17 +224,17 @@ namespace TOP.Gameplay
             if (!_initialized || CurrentHp <= 0) return;
 
             var item = FindItemInSlot(slotIndex);
-            if (item == null) return;
-            if (item.IsEquipped) return;
-            if (quantity <= 0 || quantity > item.Quantity) return;
+            if (!item.HasValue) return;
+            if (item.Value.IsEquipped) return;
+            if (quantity <= 0 || quantity > item.Value.Quantity) return;
 
-            if (quantity >= item.Quantity)
+            if (quantity >= item.Value.Quantity)
             {
-                RemoveItem(item.DbId);
+                RemoveItem(item.Value.DbId);
             }
             else
             {
-                UpdateItemQuantity(item.DbId, item.Quantity - quantity);
+                UpdateItemQuantity(item.Value.DbId, item.Value.Quantity - quantity);
             }
 
             SaveToDatabase();
@@ -245,18 +246,18 @@ namespace TOP.Gameplay
             if (!_initialized || CurrentHp <= 0) return;
 
             var item = FindItemInSlot(slotIndex);
-            if (item == null || item.IsEquipped) return;
+            if (!item.HasValue || item.Value.IsEquipped) return;
 
-            byte equipSlot = ItemDatabase.Instance.GetEquipSlot(item.ItemId);
+            byte equipSlot = ItemDatabase.Instance.GetEquipSlot(item.Value.ItemId);
             if (equipSlot == 255) return;
 
             var equipped = FindEquippedItem(equipSlot);
-            if (equipped != null)
+            if (equipped.HasValue)
             {
-                SetItemEquipped(equipped.DbId, false);
+                SetItemEquipped(equipped.Value.DbId, false);
             }
 
-            SetItemEquipped(item.DbId, true);
+            SetItemEquipped(item.Value.DbId, true);
             RecalculateStats();
             SaveToDatabase();
         }
@@ -267,7 +268,7 @@ namespace TOP.Gameplay
             if (!_initialized) return;
 
             var item = FindEquippedItem(equipSlot);
-            if (item == null) return;
+            if (!item.HasValue) return;
 
             ushort emptySlot = FindEmptySlot();
             if (emptySlot == 65535)
@@ -276,8 +277,8 @@ namespace TOP.Gameplay
                 return;
             }
 
-            SetItemEquipped(item.DbId, false);
-            UpdateItemSlot(item.DbId, emptySlot);
+            SetItemEquipped(item.Value.DbId, false);
+            UpdateItemSlot(item.Value.DbId, emptySlot);
 
             RecalculateStats();
             SaveToDatabase();
@@ -323,7 +324,7 @@ namespace TOP.Gameplay
             data.Inventory.Clear();
             foreach (var item in _inventory)
             {
-                data.Inventory.Add(new ItemData
+                data.Inventory.Add(new InventoryItemData
                 {
                     Id = item.DbId,
                     CharacterId = CharacterId,
@@ -338,7 +339,7 @@ namespace TOP.Gameplay
             data.Skills.Clear();
             foreach (var skill in _skills)
             {
-                data.Skills.Add(new SkillData
+                data.Skills.Add(new CharacterSkillData
                 {
                     CharacterId = CharacterId,
                     SkillId = skill.SkillId,

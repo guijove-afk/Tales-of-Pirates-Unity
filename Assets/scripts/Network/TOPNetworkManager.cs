@@ -16,16 +16,10 @@ namespace TOP.Network
 
         [Header("Tales of Pirate - Config")]
         [SerializeField] private float autoSaveInterval = 60f;
-        [SerializeField] private float sessionTimeout = 300f;
         [SerializeField] private string serverInstanceId = "server_01";
 
         [Header("Prefabs")]
         [SerializeField] private GameObject[] characterPreviewPrefabs;
-
-        [Header("Scenes")]
-        [Scene, SerializeField] private string loginScene = "LoginScene";
-        [Scene, SerializeField] private string characterSelectScene = "CharacterSelect";
-        [Scene, SerializeField] private string gameScene = "GameScene";
 
         private readonly Dictionary<int, PlayerConnection> _connections = new Dictionary<int, PlayerConnection>();
         private readonly Dictionary<long, NetworkConnectionToClient> _accountConnections = new Dictionary<long, NetworkConnectionToClient>();
@@ -55,7 +49,6 @@ namespace TOP.Network
             NetworkServer.RegisterHandler<ClientPing>(OnClientPing);
 
             InvokeRepeating(nameof(AutoSaveAll), autoSaveInterval, autoSaveInterval);
-            InvokeRepeating(nameof(CheckSessionTimeouts), 30f, 30f);
         }
 
         public override void OnStopServer()
@@ -95,7 +88,7 @@ namespace TOP.Network
         {
             if (_connections.TryGetValue(conn.connectionId, out var playerConn))
             {
-                if (playerConn.State == ConnectionState.InGame && playerConn.PlayerController != null)
+                if (playerConn.State == ConnectionState.InGame && conn.PlayerController != null)
                 {
                     _ = SaveAndDisconnectAsync(playerConn);
                 }
@@ -321,8 +314,7 @@ namespace TOP.Network
                 PosX = conn.PlayerController.transform.position.x,
                 PosY = conn.PlayerController.transform.position.y,
                 PosZ = conn.PlayerController.transform.position.z,
-                RotationY = conn.PlayerController.transform.rotation.eulerAngles.y,
-                IsOnline = true
+                RotationY = conn.PlayerController.transform.rotation.eulerAngles.y
             };
 
             await DatabaseService.Instance.SaveCharacterAsync(data);
@@ -340,18 +332,12 @@ namespace TOP.Network
                     PosX = conn.PlayerController.transform.position.x,
                     PosY = conn.PlayerController.transform.position.y,
                     PosZ = conn.PlayerController.transform.position.z,
-                    RotationY = conn.PlayerController.transform.rotation.eulerAngles.y,
-                    IsOnline = false
+                    RotationY = conn.PlayerController.transform.rotation.eulerAngles.y
                 };
                 await DatabaseService.Instance.SaveCharacterAsync(data);
             }
 
             _accountConnections.Remove(conn.AccountId);
-        }
-
-        void CheckSessionTimeouts()
-        {
-            // TODO: Verificar last_ping no banco e kick inativos
         }
 
         void OnClientPing(NetworkConnectionToClient conn, ClientPing msg)
