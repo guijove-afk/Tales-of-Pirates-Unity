@@ -3,7 +3,7 @@ using Mirror;
 
 public class WorldItem : NetworkBehaviour
 {
-    [SyncVar] private string itemId;
+    [SyncVar] private int itemId;
     [SyncVar] private int quantity;
     [SyncVar] private float despawnTime;
 
@@ -11,8 +11,9 @@ public class WorldItem : NetworkBehaviour
     private GameObject visualModel;
     private float spawnTime;
     private bool isPickedUp;
+    private bool visualCreated = false;
 
-    public string ItemId => itemId;
+    public int ItemId => itemId;
     public int Quantity => quantity;
 
     [Server]
@@ -27,16 +28,64 @@ public class WorldItem : NetworkBehaviour
     }
 
     [ClientRpc]
-    private void RpcCreateVisual(string id)
+    private void RpcCreateVisual(int id)
     {
+        if (ItemDatabase.Instance == null)
+        {
+            Debug.LogWarning("[WorldItem] ItemDatabase ainda não inicializado. Aguardando...");
+            StartCoroutine(WaitForDatabase(id));
+            return;
+        }
+
+        CreateVisual(id);
+    }
+
+    private System.Collections.IEnumerator WaitForDatabase(int id)
+    {
+        float timeout = 5f;
+        float elapsed = 0f;
+
+        while (ItemDatabase.Instance == null && elapsed < timeout)
+        {
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        if (ItemDatabase.Instance != null)
+        {
+            CreateVisual(id);
+        }
+        else
+        {
+            Debug.LogError("[WorldItem] Timeout aguardando ItemDatabase!");
+        }
+    }
+
+    private void CreateVisual(int id)
+    {
+        if (visualCreated) return;
+
         itemData = ItemDatabase.Instance?.GetItem(id);
-        if (itemData == null) return;
+        if (itemData == null)
+        {
+            Debug.LogError($"[WorldItem] Item ID {id} não encontrado no ItemDatabase!");
+            return;
+        }
 
         if (itemData.worldModelPrefab != null)
         {
             visualModel = Instantiate(itemData.worldModelPrefab, transform);
             visualModel.transform.localRotation = Quaternion.Euler(itemData.dropRotation);
-            visualModel.transform.localScale = Vector3.one * itemData.dropScale;
+            visualModel.transform.localScale = itemData.dropScale;
+        }
+        else
+        {
+            GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            cube.transform.SetParent(transform);
+            cube.transform.localPosition = Vector3.zero;
+            cube.transform.localScale = Vector3.one * 0.3f;
+            Destroy(cube.GetComponent<Collider>());
+            visualModel = cube;
         }
 
         if (GetComponent<Collider>() == null)
@@ -52,6 +101,7 @@ public class WorldItem : NetworkBehaviour
             rb.isKinematic = true;
         }
 
+        visualCreated = true;
         StartCoroutine(FloatAnimation());
     }
 
@@ -86,8 +136,11 @@ public class WorldItem : NetworkBehaviour
 
         isPickedUp = true;
 
-        if (inventory.AddItem(itemId, quantity))
+        // 🔧 CORREÇÃO: AddItem retorna void, verificar slot vazio antes
+        int emptySlot = inventory.FindEmptySlot();
+        if (emptySlot != -1)
         {
+            inventory.AddItem(itemId, quantity);
             RpcPickupSuccess();
             NetworkServer.Destroy(gameObject);
         }

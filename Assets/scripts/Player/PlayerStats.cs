@@ -2,6 +2,7 @@ using UnityEngine;
 using Mirror;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 [RequireComponent(typeof(CharacterController))]
 public class PlayerStats : NetworkBehaviour, ICharacterStats
@@ -141,7 +142,6 @@ public class PlayerStats : NetworkBehaviour, ICharacterStats
         if (classData == null)
         {
             Debug.LogWarning("[PlayerStats] CharacterClassData nao encontrado para " + charClass + ", usando valores padrao.");
-            // Valores padrao se nao encontrar o asset
             _strength = 10;
             _agility = 10;
             _constitution = 10;
@@ -161,7 +161,6 @@ public class PlayerStats : NetworkBehaviour, ICharacterStats
 
         RecalculateDerivedStats();
 
-        // GARANTE que o player nasce com vida cheia
         _health = _maxHealth;
         _mana = _maxMana;
         _stamina = _maxStamina;
@@ -480,6 +479,14 @@ public class PlayerStats : NetworkBehaviour, ICharacterStats
     public void RemoveModifier(StatModifier modifier)
     {
         activeModifiers.Remove(modifier);
+        RecalculateDerivedStats();
+    }
+
+    // 🔧 NOVO: Remove todos os modifiers de uma fonte (sourceId)
+    [Server]
+    public void RemoveModifiersBySource(string sourceId)
+    {
+        activeModifiers.RemoveAll(m => m.sourceId == sourceId);
         RecalculateDerivedStats();
     }
 

@@ -5,7 +5,7 @@ public class SkillProjectile : NetworkBehaviour
 {
     [SyncVar] private uint ownerNetId;
     [SyncVar] private uint targetNetId;
-    [SyncVar] private string skillId;
+    [SyncVar] private int skillId;
     [SyncVar] private float speed;
     [SyncVar] private bool homing;
 

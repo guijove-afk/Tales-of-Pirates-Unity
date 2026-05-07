@@ -1,408 +1,265 @@
 using UnityEngine;
 using Mirror;
-using System;
 using System.Collections.Generic;
 
 public class PlayerInventory : NetworkBehaviour
 {
-    [Header("Settings")]
-    [SerializeField] private int inventoryWidth = 6;
-    [SerializeField] private int inventoryHeight = 8;
-    [SerializeField] private int maxGold = 999999999;
+    [Header("Configuração")]
+    [SyncVar] public int totalSlots = 48;
 
-    public readonly SyncList<InventorySlot> inventorySlots = new SyncList<InventorySlot>();
+    [Header("Inventário")]
+    public readonly SyncList<InventoryItem> inventorySlots = new SyncList<InventoryItem>();
 
-    private PlayerStats stats;
-    private PlayerEquipment equipment;
+    public event System.Action<int, InventoryItem> OnSlotChanged;
+    public event System.Action<ItemData, int> OnItemAdded;
+    public event System.Action<ItemData, int> OnItemRemoved;
 
-    public event Action<int, InventorySlot> OnSlotChanged;
-    public event Action<ItemData, int> OnItemAdded;
-    public event Action<ItemData, int> OnItemRemoved;
-
-#pragma warning disable CS0067
-    public event Action OnGoldChanged;
-#pragma warning restore CS0067
-
-    public int MaxGold => maxGold;
-    public int InventoryWidth => inventoryWidth;
-    public int InventoryHeight => inventoryHeight;
-    public int TotalSlots => inventoryWidth * inventoryHeight;
-    public int UsedSlots { get; private set; }
-    public int FreeSlots => TotalSlots - UsedSlots;
-
-    void Awake()
+    public override void OnStartServer()
     {
-        stats = GetComponent<PlayerStats>();
-        equipment = GetComponent<PlayerEquipment>();
-
-        inventorySlots.Callback += OnInventoryChanged;
+        base.OnStartServer();
+        while (inventorySlots.Count < totalSlots)
+            inventorySlots.Add(InventoryItem.Empty);
     }
 
-    void Start()
+    public override void OnStartClient()
     {
-        if (isServer)
-        {
-            while (inventorySlots.Count < TotalSlots)
-            {
-                inventorySlots.Add(new InventorySlot());
-            }
-        }
+        base.OnStartClient();
+        inventorySlots.Callback += OnInventoryUpdated;
     }
 
-    [Server]
-    public bool AddItem(string itemId, int quantity = 1)
+    void OnDestroy()
     {
-        ItemData item = ItemDatabase.Instance?.GetItem(itemId);
-        if (item == null) return false;
-        if (quantity <= 0) return false;
-
-        int remaining = quantity;
-
-        if (item.maxStack > 1)
-        {
-            for (int i = 0; i < inventorySlots.Count && remaining > 0; i++)
-            {
-                if (inventorySlots[i].itemId == itemId && inventorySlots[i].quantity < item.maxStack)
-                {
-                    int canAdd = Mathf.Min(remaining, item.maxStack - inventorySlots[i].quantity);
-                    var slot = inventorySlots[i];
-                    slot.quantity += canAdd;
-                    inventorySlots[i] = slot;
-                    remaining -= canAdd;
-                }
-            }
-        }
-
-        for (int i = 0; i < inventorySlots.Count && remaining > 0; i++)
-        {
-            if (string.IsNullOrEmpty(inventorySlots[i].itemId))
-            {
-                int canAdd = Mathf.Min(remaining, item.maxStack);
-                inventorySlots[i] = new InventorySlot
-                {
-                    itemId = itemId,
-                    quantity = canAdd,
-                    durability = item is EquipmentData equip ? equip.durability : 100
-                };
-                remaining -= canAdd;
-            }
-        }
-
-        if (remaining < quantity)
-        {
-            OnItemAdded?.Invoke(item, quantity - remaining);
-            UpdateUsedSlots();
-            return remaining == 0;
-        }
-
-        return false;
+        inventorySlots.Callback -= OnInventoryUpdated;
     }
 
-    [Server]
-    public bool RemoveItem(string itemId, int quantity = 1)
+    void OnInventoryUpdated(SyncList<InventoryItem>.Operation op, int index, InventoryItem oldItem, InventoryItem newItem)
     {
-        if (quantity <= 0) return false;
-
-        int remaining = quantity;
-
-        for (int i = inventorySlots.Count - 1; i >= 0 && remaining > 0; i--)
-        {
-            if (inventorySlots[i].itemId == itemId)
-            {
-                int canRemove = Mathf.Min(remaining, inventorySlots[i].quantity);
-                var slot = inventorySlots[i];
-                slot.quantity -= canRemove;
-                remaining -= canRemove;
-
-                if (slot.quantity <= 0)
-                {
-                    slot = new InventorySlot();
-                }
-
-                inventorySlots[i] = slot;
-            }
-        }
-
-        if (remaining < quantity)
-        {
-            ItemData item = ItemDatabase.Instance?.GetItem(itemId);
-            if (item != null)
-                OnItemRemoved?.Invoke(item, quantity - remaining);
-
-            UpdateUsedSlots();
-            return remaining == 0;
-        }
-
-        return false;
-    }
-
-    [Server]
-    public bool RemoveItemAt(int slotIndex, int quantity = 1)
-    {
-        if (slotIndex < 0 || slotIndex >= inventorySlots.Count) return false;
-        if (string.IsNullOrEmpty(inventorySlots[slotIndex].itemId)) return false;
-
-        var slot = inventorySlots[slotIndex];
-        string itemId = slot.itemId;
-
-        if (slot.quantity <= quantity)
-        {
-            inventorySlots[slotIndex] = new InventorySlot();
-        }
-        else
-        {
-            slot.quantity -= quantity;
-            inventorySlots[slotIndex] = slot;
-        }
-
-        ItemData item = ItemDatabase.Instance?.GetItem(itemId);
-        if (item != null)
-            OnItemRemoved?.Invoke(item, quantity);
-
-        UpdateUsedSlots();
-        return true;
+        OnSlotChanged?.Invoke(index, newItem);
     }
 
     [Command]
-    public void CmdMoveItem(int fromSlot, int toSlot)
+    public void CmdUseItem(int inventoryIndex)
     {
-        if (fromSlot < 0 || fromSlot >= inventorySlots.Count) return;
-        if (toSlot < 0 || toSlot >= inventorySlots.Count) return;
-        if (fromSlot == toSlot) return;
+        if (inventoryIndex < 0 || inventoryIndex >= inventorySlots.Count) return;
+        var item = inventorySlots[inventoryIndex];
+        if (item.IsEmpty) return;
 
-        var from = inventorySlots[fromSlot];
-        var to = inventorySlots[toSlot];
+        var itemData = ItemDatabase.Instance?.GetItem(item.itemId);
+        if (itemData == null) return;
 
-        if (from.itemId == to.itemId && !string.IsNullOrEmpty(from.itemId))
+        if (itemData is EquipmentData equipData)
         {
-            ItemData item = ItemDatabase.Instance?.GetItem(from.itemId);
-            if (item != null && item.maxStack > 1)
+            var playerEquip = GetComponent<PlayerEquipment>();
+            if (playerEquip != null && playerEquip.CanEquip(equipData))
             {
-                int canStack = Mathf.Min(from.quantity, item.maxStack - to.quantity);
-                if (canStack > 0)
+                inventorySlots[inventoryIndex] = InventoryItem.Empty;
+                playerEquip.EquipItem(equipData, item.durability, item.refineLevel);
+                RpcNotifyItemEquipped(itemData.itemName);
+            }
+        }
+        else if (itemData.itemType == ItemType.Consumable)
+        {
+            item.quantity--;
+            if (item.quantity <= 0)
+                inventorySlots[inventoryIndex] = InventoryItem.Empty;
+            else
+                inventorySlots[inventoryIndex] = item;
+            RpcNotifyItemUsed(itemData.itemName);
+        }
+    }
+
+    [Command]
+    public void CmdMoveItem(int fromIndex, int toIndex)
+    {
+        if (fromIndex < 0 || fromIndex >= inventorySlots.Count) return;
+        if (toIndex < 0 || toIndex >= inventorySlots.Count) return;
+        if (fromIndex == toIndex) return;
+
+        var fromItem = inventorySlots[fromIndex];
+        var toItem = inventorySlots[toIndex];
+
+        if (!fromItem.IsEmpty && !toItem.IsEmpty && fromItem.itemId == toItem.itemId)
+        {
+            var itemData = ItemDatabase.Instance?.GetItem(fromItem.itemId);
+            if (itemData != null && itemData.IsStackable)
+            {
+                int total = fromItem.quantity + toItem.quantity;
+                if (total <= itemData.maxStack)
                 {
-                    to.quantity += canStack;
-                    from.quantity -= canStack;
-
-                    if (from.quantity <= 0)
-                        from = new InventorySlot();
-
-                    inventorySlots[fromSlot] = from;
-                    inventorySlots[toSlot] = to;
+                    inventorySlots[toIndex] = new InventoryItem
+                    {
+                        itemId = toItem.itemId,
+                        quantity = total,
+                        durability = toItem.durability,
+                        refineLevel = toItem.refineLevel
+                    };
+                    inventorySlots[fromIndex] = InventoryItem.Empty;
                     return;
                 }
             }
         }
 
-        inventorySlots[fromSlot] = to;
-        inventorySlots[toSlot] = from;
-    }
-
-    [Command]
-    public void CmdSplitItem(int slotIndex, int amount)
-    {
-        if (slotIndex < 0 || slotIndex >= inventorySlots.Count) return;
-
-        var slot = inventorySlots[slotIndex];
-        if (string.IsNullOrEmpty(slot.itemId)) return;
-        if (slot.quantity <= amount) return;
-
-        for (int i = 0; i < inventorySlots.Count; i++)
-        {
-            if (string.IsNullOrEmpty(inventorySlots[i].itemId))
-            {
-                inventorySlots[i] = new InventorySlot
-                {
-                    itemId = slot.itemId,
-                    quantity = amount,
-                    durability = slot.durability
-                };
-
-                slot.quantity -= amount;
-                inventorySlots[slotIndex] = slot;
-                return;
-            }
-        }
-    }
-
-    [Command]
-    public void CmdUseItem(int slotIndex)
-    {
-        if (slotIndex < 0 || slotIndex >= inventorySlots.Count) return;
-
-        var slot = inventorySlots[slotIndex];
-        if (string.IsNullOrEmpty(slot.itemId)) return;
-
-        ItemData item = ItemDatabase.Instance?.GetItem(slot.itemId);
-        if (item == null) return;
-
-        if (item is ConsumableData consumable)
-        {
-            UseConsumable(consumable, slotIndex);
-        }
-        else if (item is EquipmentData equipmentData)
-        {
-            EquipItem(equipmentData, slotIndex);
-        }
-    }
- 
-    [Server]
-    private void UseConsumable(ConsumableData consumable, int slotIndex)
-    {
-        if (stats.Level < consumable.requiredLevel) return;
-
-        if (consumable.restoreHP > 0)
-            stats.Heal(consumable.restoreHP);
-        if (consumable.restoreHPPercent > 0)
-            stats.Heal(Mathf.RoundToInt(stats.MaxHealth * consumable.restoreHPPercent / 100f));
-
-        if (consumable.restoreMP > 0)
-            stats.RestoreMana(consumable.restoreMP);
-        if (consumable.restoreMPPercent > 0)
-            stats.RestoreMana(Mathf.RoundToInt(stats.MaxMana * consumable.restoreMPPercent / 100f));
-
-        if (consumable.restoreSP > 0)
-            stats.RestoreStamina(consumable.restoreSP);
-
-        RemoveItemAt(slotIndex, 1);
-
-        RpcItemUsed(consumable.itemId);
-    }
-
-    [Server]
-    private void EquipItem(EquipmentData equipmentData, int slotIndex)
-    {
-        if (equipment == null) return;
-
-        if (equipment.EquipItem(equipmentData.itemId))
-        {
-            RemoveItemAt(slotIndex, 1);
-        }
+        inventorySlots[fromIndex] = toItem;
+        inventorySlots[toIndex] = fromItem;
     }
 
     [Command]
     public void CmdUnequipItem(EquipmentSlot slot)
     {
-        if (equipment == null) return;
+        var playerEquip = GetComponent<PlayerEquipment>();
+        if (playerEquip == null) return;
 
-        EquipmentData item = equipment.GetEquippedItem(slot);
-        if (item == null) return;
+        var equipped = playerEquip.GetEquippedItemStruct(slot);
+        if (equipped.IsEmpty) return;
 
-        if (AddItem(item.itemId))
+        int emptyIndex = FindEmptySlot();
+        if (emptyIndex == -1)
         {
-            equipment.UnequipItem(slot);
+            TargetShowMessage(connectionToClient, "Inventário cheio!");
+            return;
         }
+
+        var itemData = ItemDatabase.Instance?.GetItem(equipped.itemId);
+        if (itemData == null) return;
+
+        playerEquip.UnequipItem(slot);
+        inventorySlots[emptyIndex] = new InventoryItem
+        {
+            itemId = equipped.itemId,
+            quantity = 1,
+            durability = equipped.durability,
+            refineLevel = equipped.refineLevel
+        };
     }
 
     [Command]
-    public void CmdDropItem(int slotIndex, int quantity)
+    public void CmdAddItemDebug(int itemId, int quantity)
     {
-        if (slotIndex < 0 || slotIndex >= inventorySlots.Count) return;
-
-        var slot = inventorySlots[slotIndex];
-        if (string.IsNullOrEmpty(slot.itemId)) return;
-
-        ItemData item = ItemDatabase.Instance?.GetItem(slot.itemId);
-        if (item == null || !item.isDroppable) return;
-
-        quantity = Mathf.Min(quantity, slot.quantity);
-
-        SpawnWorldItem(item, quantity, transform.position + transform.forward);
-
-        RemoveItemAt(slotIndex, quantity);
+        AddItem(itemId, quantity);
     }
 
-    [Server]
-    private void SpawnWorldItem(ItemData item, int quantity, Vector3 position)
+    [Command]
+    public void CmdRemoveItemDebug(int itemId, int quantity)
     {
-        GameObject worldItemObj = new GameObject($"WorldItem_{item.itemName}");
-        worldItemObj.transform.position = position;
-
-        WorldItem worldItem = worldItemObj.AddComponent<WorldItem>();
-        worldItem.Initialize(item, quantity);
+        RemoveItem(itemId, quantity);
     }
 
-    public InventorySlot GetSlot(int index)
+    public void AddItem(int itemId, int quantity)
     {
-        if (index < 0 || index >= inventorySlots.Count)
-            return new InventorySlot();
-        return inventorySlots[index];
-    }
+        if (!isServer) return;
+        var itemData = ItemDatabase.Instance?.GetItem(itemId);
+        if (itemData == null) return;
 
-    public int GetItemQuantity(string itemId)
-    {
-        int total = 0;
-        foreach (var slot in inventorySlots)
+        int remaining = quantity;
+
+        if (itemData.IsStackable)
         {
-            if (slot.itemId == itemId)
-                total += slot.quantity;
+            for (int i = 0; i < inventorySlots.Count && remaining > 0; i++)
+            {
+                if (inventorySlots[i].itemId == itemId)
+                {
+                    int canAdd = itemData.maxStack - inventorySlots[i].quantity;
+                    if (canAdd > 0)
+                    {
+                        int add = Mathf.Min(canAdd, remaining);
+                        var slot = inventorySlots[i];
+                        slot.quantity += add;
+                        inventorySlots[i] = slot;
+                        remaining -= add;
+                    }
+                }
+            }
         }
-        return total;
+
+        while (remaining > 0)
+        {
+            int emptyIndex = FindEmptySlot();
+            if (emptyIndex == -1) break;
+
+            int add = itemData.IsStackable ? Mathf.Min(remaining, itemData.maxStack) : 1;
+            inventorySlots[emptyIndex] = new InventoryItem
+            {
+                itemId = itemId,
+                quantity = add,
+                durability = (itemData is EquipmentData eq) ? eq.maxDurability : -1,
+                refineLevel = 0
+            };
+            remaining -= add;
+
+            if (!itemData.IsStackable) break;
+        }
+
+        if (quantity - remaining > 0)
+            OnItemAdded?.Invoke(itemData, quantity - remaining);
     }
 
-    public bool HasItem(string itemId, int quantity = 1)
+    public void RemoveItem(int itemId, int quantity)
     {
-        return GetItemQuantity(itemId) >= quantity;
+        if (!isServer) return;
+        int remaining = quantity;
+
+        for (int i = 0; i < inventorySlots.Count && remaining > 0; i++)
+        {
+            if (inventorySlots[i].itemId == itemId)
+            {
+                int remove = Mathf.Min(inventorySlots[i].quantity, remaining);
+                var slot = inventorySlots[i];
+                slot.quantity -= remove;
+                if (slot.quantity <= 0)
+                    inventorySlots[i] = InventoryItem.Empty;
+                else
+                    inventorySlots[i] = slot;
+                remaining -= remove;
+            }
+        }
+
+        if (quantity - remaining > 0)
+        {
+            var itemData = ItemDatabase.Instance?.GetItem(itemId);
+            OnItemRemoved?.Invoke(itemData, quantity - remaining);
+        }
     }
 
-    public int FindItemSlot(string itemId)
+    public int FindEmptySlot()
+    {
+        for (int i = 0; i < inventorySlots.Count; i++)
+            if (inventorySlots[i].IsEmpty) return i;
+        return -1;
+    }
+
+    // ====== MÉTODO ADICIONADO PARA COMPATIBILIDADE ======
+
+    public int FindItemSlot(int itemId)
     {
         for (int i = 0; i < inventorySlots.Count; i++)
         {
             if (inventorySlots[i].itemId == itemId)
                 return i;
         }
-        return -1;
+        return -1; // Não encontrado
     }
 
-    public int FindEmptySlot()
+    public InventoryItem GetSlot(int index)
     {
-        for (int i = 0; i < inventorySlots.Count; i++)
-        {
-            if (string.IsNullOrEmpty(inventorySlots[i].itemId))
-                return i;
-        }
-        return -1;
-    }
-
-    private void OnInventoryChanged(SyncList<InventorySlot>.Operation op, int index,
-        InventorySlot oldItem, InventorySlot newItem)
-    {
-        OnSlotChanged?.Invoke(index, newItem);
-    }
-
-    private void UpdateUsedSlots()
-    {
-        UsedSlots = 0;
-        foreach (var slot in inventorySlots)
-        {
-            if (!string.IsNullOrEmpty(slot.itemId))
-                UsedSlots++;
-        }
+        if (index < 0 || index >= inventorySlots.Count) return InventoryItem.Empty;
+        return inventorySlots[index];
     }
 
     [ClientRpc]
-    private void RpcItemUsed(string itemId)
+    void RpcNotifyItemEquipped(string itemName)
     {
-        ItemData item = ItemDatabase.Instance?.GetItem(itemId);
-        if (item is ConsumableData consumable)
-        {
-            if (consumable.useEffect != null)
-            {
-                Instantiate(consumable.useEffect, transform.position + Vector3.up, Quaternion.identity);
-            }
-            if (consumable.useSound != null && TryGetComponent(out AudioSource audio))
-                audio.PlayOneShot(consumable.useSound);
-        }
+        Debug.Log($"[PlayerInventory] Equipou: {itemName}");
     }
-}
 
-[System.Serializable]
-public struct InventorySlot : Mirror.NetworkMessage
-{
-    public string itemId;
-    public int quantity;
-    public int durability;
-    public int refineLevel;
-    public string[] gemSlots;
+    [ClientRpc]
+    void RpcNotifyItemUsed(string itemName)
+    {
+        Debug.Log($"[PlayerInventory] Usou: {itemName}");
+    }
+
+    [TargetRpc]
+    void TargetShowMessage(NetworkConnection target, string message)
+    {
+        Debug.Log($"[PlayerInventory] {message}");
+    }
 }

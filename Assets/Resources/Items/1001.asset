@@ -10,48 +10,38 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a8b17102b06728243b22fd156cd647b3, type: 3}
-  m_Name: Sword_001
+  m_Name: 1001
   m_EditorClassIdentifier: Assembly-CSharp::EquipmentData
-  itemId: 0001
+  itemId: 1001
   itemName: Sword of Crimson Thunder
   description: "Uma espada b\xE1sica para iniciantes"
   icon: {fileID: 21300000, guid: 0bb193b7118fd45459150f068f56aad0, type: 3}
   maxStack: 1
-  isDroppable: 1
+  buyPrice: 0
+  sellPrice: 0
   itemType: 0
-  rarity: 0
-  useEffect: {fileID: 0}
-  useSound: {fileID: 0}
-  worldModelPrefab: {fileID: 919132149155446097, guid: 4e3f786985d40434e86a496ada3a43c0, type: 3}
+  worldModelPrefab: {fileID: 6288479190817749043, guid: f8b09aad8151c334ebb8286b897afccf, type: 3}
   dropRotation: {x: 0, y: 0, z: 0}
-  dropScale: 1
+  dropScale: {x: 1, y: 1, z: 1}
   slot: 2
-  weaponType: 1
-  armorType: 0
   requiredLevel: 1
-  requiredClass: 0
-  durability: 100
-  maxDurability: 100
-  gemSlots: 3
-  maleModelPrefab: {fileID: 0}
-  femaleModelPrefab: {fileID: 0}
-  modelOffset: {x: 0, y: 0, z: 0}
-  modelRotation: {x: 0, y: 0, z: 0}
-  modelScale: {x: 1, y: 1, z: 1}
-  equipEffect: {fileID: 0}
-  equipSound: {fileID: 0}
-  bonusSTR: 10
-  bonusAGI: 0
-  bonusCON: 0
-  bonusSPR: 0
-  bonusACC: 0
-  bonusLUCK: 0
-  bonusHP: 0
-  bonusMP: 0
-  bonusSP: 0
+  requiredSTR: 0
+  requiredAGI: 0
+  requiredINT: 0
   bonusAttack: 0
   bonusDefense: 0
   bonusMagicAttack: 0
   bonusMagicDefense: 0
-  bonusAttackSpeed: 0
-  bonusMoveSpeed: 0
+  bonusSTR: 10
+  bonusAGI: 0
+  bonusINT: 0
+  bonusHP: 0
+  bonusMP: 0
+  bonusSpeed: 0
+  maxDurability: 100
+  durability: 100
+  maxRefineLevel: 9
+  equipPrefab: {fileID: 6288479190817749043, guid: f8b09aad8151c334ebb8286b897afccf, type: 3}
+  equipPositionOffset: {x: -0.00075, y: 0.00097, z: 0.00004}
+  equipRotationOffset: {x: 1.664, y: -90.061, z: -3.549}
+  equipScale: {x: 0.007, y: 0.007, z: 0.007}

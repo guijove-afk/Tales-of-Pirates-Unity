@@ -4,7 +4,7 @@ using UnityEngine;
 public class SkillData : ScriptableObject
 {
     [Header("Informações")]
-    public string skillId;
+    public int skillId;
     public string skillName;
     public string description;
     public Sprite icon;
@@ -15,7 +15,7 @@ public class SkillData : ScriptableObject
     public CharacterClass requiredClass = CharacterClass.None;
     public int requiredLevel = 1;
     public int requiredSkillPoints = 1;
-    public string[] prerequisiteSkills;
+    public int[] prerequisiteSkills;
 
     [Header("Custo")]
     public int mpCost;
@@ -74,9 +74,9 @@ public class SkillData : ScriptableObject
 
     private void OnValidate()
     {
-        if (string.IsNullOrEmpty(skillId))
+        if (skillId <= 0)
         {
-            skillId = System.Guid.NewGuid().ToString("N").Substring(0, 8);
+            skillId = Random.Range(1000, 9999);
         }
     }
 }

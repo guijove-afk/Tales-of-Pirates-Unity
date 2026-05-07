@@ -6,7 +6,7 @@ public class SkillDatabase : MonoBehaviour
     public static SkillDatabase Instance { get; private set; }
 
     [SerializeField] private List<SkillData> allSkills = new List<SkillData>();
-    private Dictionary<string, SkillData> skillDictionary = new Dictionary<string, SkillData>();
+    private Dictionary<int, SkillData> skillDictionary = new Dictionary<int, SkillData>();
 
     void Awake()
     {
@@ -26,12 +26,12 @@ public class SkillDatabase : MonoBehaviour
         skillDictionary.Clear();
         foreach (var skill in allSkills)
         {
-            if (skill != null && !string.IsNullOrEmpty(skill.skillId))
+            if (skill != null && skill.skillId > 0)
                 skillDictionary[skill.skillId] = skill;
         }
     }
 
-    public SkillData GetSkill(string skillId)
+    public SkillData GetSkill(int skillId)
     {
         return skillDictionary.TryGetValue(skillId, out var skill) ? skill : null;
     }

@@ -43,6 +43,7 @@ public class PlayerHotbar : NetworkBehaviour
 
     private void HandleInput()
     {
+        // Teclas F1-F10
         for (int i = 0; i < maxSlots && i < 10; i++)
         {
             if (Input.GetKeyDown(KeyCode.F1 + i))
@@ -51,6 +52,7 @@ public class PlayerHotbar : NetworkBehaviour
             }
         }
 
+        // Teclas 1-0
         for (int i = 0; i < maxSlots && i < 10; i++)
         {
             KeyCode key = i == 9 ? KeyCode.Alpha0 : KeyCode.Alpha1 + i;
@@ -70,9 +72,16 @@ public class PlayerHotbar : NetworkBehaviour
         switch (slot.type)
         {
             case HotbarSlotType.Skill:
-                SkillData skill = SkillDatabase.Instance?.GetSkill(slot.id);
-                if (skill != null)
-                    skills?.TryUseSkill(skill);
+                // 🔧 CORREÇÃO: PlayerSkills.TryUseSkill() espera int (índice), não SkillData
+                // Verificamos se o ID corresponde a um índice válido
+                if (slot.id >= 0 && slot.id < 4) // Assumindo max 4 skills visíveis
+                {
+                    skills?.TryUseSkill(slot.id);
+                }
+                else
+                {
+                    Debug.LogWarning("[PlayerHotbar] Skill ID " + slot.id + " não corresponde a um índice válido.");
+                }
                 break;
 
             case HotbarSlotType.Item:
@@ -122,6 +131,6 @@ public class PlayerHotbar : NetworkBehaviour
 public struct HotbarSlot : Mirror.NetworkMessage
 {
     public HotbarSlotType type;
-    public string id;
-    public int emoteId;
+    public int id;        // Skill index ou Item ID
+    public int emoteId;   // ID do emote
 }

@@ -12,11 +12,11 @@ public class PlayerSkills : NetworkBehaviour
     [Header("Debug")]
     [SerializeField] private bool showSkillDebugLogs = true;
 
-    // Estado
     private float lastSkillTime;
     private Dictionary<int, float> skillCooldowns = new Dictionary<int, float>();
     private PlayerStats playerStats;
 
+    // Eventos compatíveis com PlayerAnimation (usam SkillData)
     public event Action<SkillData, float> OnSkillCastStarted;
     public event Action OnSkillCastFinished;
     public event Action<SkillData> OnSkillExecuted;
@@ -30,7 +30,6 @@ public class PlayerSkills : NetworkBehaviour
     {
         if (!isLocalPlayer) return;
 
-        // Hotkeys de skills (1-4)
         for (int i = 0; i < skills.Count && i < 4; i++)
         {
             if (Input.GetKeyDown(KeyCode.Alpha1 + i))
@@ -64,35 +63,31 @@ public class PlayerSkills : NetworkBehaviour
             return;
         }
 
-        // Verifica cooldown global
         if (Time.time < lastSkillTime + globalCooldown)
         {
             if (showSkillDebugLogs) Debug.Log("[PlayerSkills] TryUseSkill CANCELADO: global cooldown");
             return;
         }
 
-        // Verifica cooldown da skill
         if (skillCooldowns.TryGetValue(skillIndex, out float cooldownEnd) && Time.time < cooldownEnd)
         {
             if (showSkillDebugLogs) Debug.Log("[PlayerSkills] TryUseSkill CANCELADO: skill em cooldown (" + (cooldownEnd - Time.time).ToString("F1") + "s restantes)");
             return;
         }
 
-        // Verifica mana
+        // 🔧 CORREÇÃO: PlayerSkillData usa "manaCost", não "mpCost"
         if (playerStats.Mana < skill.manaCost)
         {
             if (showSkillDebugLogs) Debug.Log("[PlayerSkills] TryUseSkill CANCELADO: mana insuficiente (" + playerStats.Mana + "/" + skill.manaCost + ")");
             return;
         }
 
-        // Verifica stamina
         if (playerStats.Stamina < skill.staminaCost)
         {
             if (showSkillDebugLogs) Debug.Log("[PlayerSkills] TryUseSkill CANCELADO: stamina insuficiente (" + playerStats.Stamina + "/" + skill.staminaCost + ")");
             return;
         }
 
-        // Verifica level
         if (playerStats.Level < skill.requiredLevel)
         {
             if (showSkillDebugLogs) Debug.Log("[PlayerSkills] TryUseSkill CANCELADO: level insuficiente (" + playerStats.Level + "/" + skill.requiredLevel + ")");
@@ -111,17 +106,32 @@ public class PlayerSkills : NetworkBehaviour
         lastSkillTime = Time.time;
         skillCooldowns[skillIndex] = Time.time + skill.cooldown;
 
-        // Envia comando para servidor
+        // 🔧 CORREÇÃO: Criar SkillData wrapper com os nomes CORRETOS do SEU SkillData
+        SkillData skillDataWrapper = CreateSkillDataWrapper(skill, skillIndex);
+
+        // Usar castTime do PlayerSkillData
+        OnSkillCastStarted?.Invoke(skillDataWrapper, skill.castTime);
+
         CmdUseSkill(skillIndex, transform.position, transform.forward);
     }
 
-    [Client]
-    public void TryUseSkill(SkillData skill)
+    // 🔧 CORREÇÃO: Mapeia PlayerSkillData → SkillData (seu original) corretamente
+    private SkillData CreateSkillDataWrapper(PlayerSkillData playerSkill, int index)
     {
-        if (skill == null) return;
-        OnSkillCastStarted?.Invoke(skill, skill.castTime);
-        OnSkillCastFinished?.Invoke();
-        OnSkillExecuted?.Invoke(skill);
+        SkillData wrapper = ScriptableObject.CreateInstance<SkillData>();
+
+        // Campos comuns
+        wrapper.skillName = playerSkill.skillName;
+        wrapper.animationVariant = index;
+        wrapper.castTime = playerSkill.castTime;
+        wrapper.cooldown = playerSkill.cooldown;
+        wrapper.requiredLevel = playerSkill.requiredLevel;
+
+        // 🔧 CORREÇÃO: Seu SkillData usa "mpCost", não "manaCost"
+        // Mas como o wrapper é só para notificar o PlayerAnimation, 
+        // e PlayerAnimation só lê animationVariant, não precisamos mpCost aqui
+
+        return wrapper;
     }
 
     [Command]
@@ -149,14 +159,12 @@ public class PlayerSkills : NetworkBehaviour
             return;
         }
 
-        // Consome recursos
+        // 🔧 CORREÇÃO: Usar manaCost (PlayerSkillData) não mpCost
         playerStats.RestoreMana(-skill.manaCost);
         playerStats.RestoreStamina(-skill.staminaCost);
 
-        // Executa efeito da skill
         ExecuteSkillEffect(skill, castPos, castDir);
 
-        // Notifica clientes
         RpcOnSkillUsed(skillIndex, castPos, castDir);
     }
 
@@ -189,7 +197,6 @@ public class PlayerSkills : NetworkBehaviour
     [Server]
     private void ExecuteSingleTargetSkill(PlayerSkillData skill, Vector3 castPos, Vector3 castDir)
     {
-        // Raycast para encontrar alvo
         if (Physics.Raycast(castPos + Vector3.up, castDir, out RaycastHit hit, skill.range, LayerMask.GetMask("Enemy")))
         {
             ICharacterStats targetStats = hit.collider.GetComponent<ICharacterStats>();
@@ -237,10 +244,11 @@ public class PlayerSkills : NetworkBehaviour
 
         foreach (var modifier in skill.statModifiers)
         {
+            if (string.IsNullOrEmpty(modifier.sourceId))
+                modifier.sourceId = "skill_" + skill.skillName;
             playerStats.AddModifier(modifier);
         }
 
-        // Remove buffs apos duracao
         if (skill.buffDuration > 0)
         {
             StartCoroutine(RemoveBuffAfterDelay(skill));
@@ -251,17 +259,16 @@ public class PlayerSkills : NetworkBehaviour
     private System.Collections.IEnumerator RemoveBuffAfterDelay(PlayerSkillData skill)
     {
         yield return new WaitForSeconds(skill.buffDuration);
-        foreach (var modifier in skill.statModifiers)
-        {
-            playerStats.RemoveModifier(modifier);
-        }
+
+        string sourceId = "skill_" + skill.skillName;
+        playerStats.RemoveModifiersBySource(sourceId);
+
         Debug.Log("[PlayerSkills] Buff " + skill.skillName + " expirou");
     }
 
     [Server]
     private void ExecuteProjectileSkill(PlayerSkillData skill, Vector3 castPos, Vector3 castDir)
     {
-        // Instancia projetil no servidor
         if (skill.projectilePrefab != null)
         {
             GameObject proj = Instantiate(skill.projectilePrefab, castPos + Vector3.up, Quaternion.LookRotation(castDir));
@@ -279,7 +286,6 @@ public class PlayerSkills : NetworkBehaviour
     {
         int baseDamage = skill.baseDamage;
 
-        // Adiciona scaling de stats
         switch (skill.scalingStat)
         {
             case StatType.STR:
@@ -313,13 +319,16 @@ public class PlayerSkills : NetworkBehaviour
         if (showSkillDebugLogs)
             Debug.Log("[PlayerSkills] RpcOnSkillUsed: " + skill.skillName);
 
-        // Efeitos visuais client-side
         if (skill.castEffectPrefab != null)
         {
             Instantiate(skill.castEffectPrefab, castPos, Quaternion.identity);
         }
 
-        // Animacao
+        // Notificar eventos com SkillData wrapper
+        SkillData wrapper = CreateSkillDataWrapper(skill, skillIndex);
+        OnSkillCastFinished?.Invoke();
+        OnSkillExecuted?.Invoke(wrapper);
+
         GetComponent<PlayerAnimation>()?.SetTrigger("Skill" + skillIndex);
     }
 
@@ -374,10 +383,11 @@ public class PlayerSkillData : ScriptableObject
     public DamageType damageType = DamageType.Physical;
 
     [Header("Costs")]
-    public int manaCost = 10;
+    public int manaCost = 10;        // 🔥 Usado no PlayerSkills
     public int staminaCost = 5;
     public int requiredLevel = 1;
     public float cooldown = 5f;
+    public float castTime = 0.5f;
 
     [Header("Damage")]
     public int baseDamage = 20;

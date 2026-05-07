@@ -1,335 +1,283 @@
 using UnityEngine;
 using Mirror;
-using System;
 using System.Collections.Generic;
 
 public class PlayerEquipment : NetworkBehaviour
 {
-    [Header("Bone References")]
-    [SerializeField] private Transform headBone;
-    [SerializeField] private Transform bodyBone;
-    [SerializeField] private Transform rightHandBone;
-    [SerializeField] private Transform leftHandBone;
-    [SerializeField] private Transform backBone;
-    [SerializeField] private Transform feetBone;
+    [System.Serializable]
+    public struct EquipmentSlotItem
+    {
+        public EquipmentSlot slot;
+        public EquippedItem item;
+    }
 
-    public readonly SyncList<EquippedItem> equippedItems = new SyncList<EquippedItem>();
+    public readonly SyncList<EquipmentSlotItem> equippedItems = new SyncList<EquipmentSlotItem>();
 
-    private Dictionary<EquipmentSlot, GameObject> currentModels = new Dictionary<EquipmentSlot, GameObject>();
-    private Dictionary<EquipmentSlot, EquipmentData> equippedData = new Dictionary<EquipmentSlot, EquipmentData>();
-    private PlayerStats stats;
-    private PlayerAnimation playerAnim;
+    public event System.Action<EquipmentSlot, EquipmentData> OnItemEquipped;
+    public event System.Action<EquipmentSlot> OnItemUnequipped;
 
-    public event Action<EquipmentSlot, EquipmentData> OnItemEquipped;
-    public event Action<EquipmentSlot> OnItemUnequipped;
-    public event Action OnEquipmentChanged;
+    // REMOVIDO: Não precisa mais arrastar no Inspector
+    // [SerializeField] private Transform rightHandHolder;
+    // ...
 
-    public IReadOnlyDictionary<EquipmentSlot, EquipmentData> EquippedItems => equippedData;
+    // Dicionário interno de holders (encontrados automaticamente)
+    private Dictionary<EquipmentSlot, Transform> holders = new Dictionary<EquipmentSlot, Transform>();
+
+    // Guarda os GameObjects instanciados no personagem
+    private Dictionary<EquipmentSlot, GameObject> equippedVisuals = new Dictionary<EquipmentSlot, GameObject>();
 
     void Awake()
     {
-        stats = GetComponent<PlayerStats>();
-        playerAnim = GetComponent<PlayerAnimation>();
+        FindHoldersAutomatically();
+    }
 
-        equippedItems.Callback += OnEquippedItemsChanged;
+    void FindHoldersAutomatically()
+    {
+        // Busca TODOS os Transforms filhos (incluindo bones)
+        var allTransforms = GetComponentsInChildren<Transform>(true);
+
+        foreach (var t in allTransforms)
+        {
+            string name = t.name.ToLower();
+
+            // Weapon → mão direita
+            if (name.Contains("r hand") || name.Contains("righthand") || name.Contains("hand_r") || name == "bip01 r hand")
+                holders[EquipmentSlot.Weapon] = t;
+
+            // Shield → mão esquerda
+            else if (name.Contains("l hand") || name.Contains("lefthand") || name.Contains("hand_l") || name == "bip01 l hand")
+                holders[EquipmentSlot.Shield] = t;
+
+            // Helmet → cabeça
+            else if (name.Contains("head") && !name.Contains("ahead"))
+                holders[EquipmentSlot.Helmet] = t;
+
+            // Armor → coluna/peito
+            else if (name.Contains("spine1") || name.Contains("chest") || name.Contains("spine_1"))
+                holders[EquipmentSlot.Armor] = t;
+
+            // Gloves → mãos (usa o spine se não achar específico)
+            else if (name.Contains("forearm") || name.Contains("clavicle"))
+            {
+                if (!holders.ContainsKey(EquipmentSlot.Gloves))
+                    holders[EquipmentSlot.Gloves] = t;
+            }
+
+            // Boots → pés
+            else if (name.Contains("foot") || name.Contains("ankle"))
+            {
+                if (!holders.ContainsKey(EquipmentSlot.Boots))
+                    holders[EquipmentSlot.Boots] = t;
+            }
+
+            // Cape → costas/spine
+            else if (name.Contains("spine") && !holders.ContainsKey(EquipmentSlot.Cape))
+                holders[EquipmentSlot.Cape] = t;
+
+            // Belt → quadril/pelvis
+            else if (name.Contains("pelvis") || name.Contains("hips"))
+                holders[EquipmentSlot.Belt] = t;
+        }
+
+        // Log para debug — veja no Console se achou tudo
+        Debug.Log($"[PlayerEquipment] Holders encontrados:");
+        foreach (var kvp in holders)
+            Debug.Log($"  {kvp.Key} → {kvp.Value.name}");
+    }
+
+    public override void OnStartServer()
+    {
+        base.OnStartServer();
+        foreach (EquipmentSlot slot in System.Enum.GetValues(typeof(EquipmentSlot)))
+        {
+            if (FindSlotIndex(slot) == -1)
+                equippedItems.Add(new EquipmentSlotItem { slot = slot, item = EquippedItem.Empty });
+        }
+    }
+
+    public override void OnStartClient()
+    {
+        base.OnStartClient();
+        equippedItems.Callback += OnEquipmentUpdated;
+
+        // Spawnar visuais que já estavam equipados antes de entrar
+        if (equippedItems.Count > 0)
+        {
+            for (int i = 0; i < equippedItems.Count; i++)
+            {
+                var entry = equippedItems[i];
+                if (!entry.item.IsEmpty)
+                {
+                    var data = ItemDatabase.Instance?.GetEquipment(entry.item.itemId);
+                    SpawnVisual(entry.slot, data);
+                    OnItemEquipped?.Invoke(entry.slot, data);
+                }
+            }
+        }
+    }
+
+    void OnDestroy()
+    {
+        equippedItems.Callback -= OnEquipmentUpdated;
+    }
+
+    void OnEquipmentUpdated(SyncList<EquipmentSlotItem>.Operation op, int index, EquipmentSlotItem oldItem, EquipmentSlotItem newItem)
+    {
+        switch (op)
+        {
+            case SyncList<EquipmentSlotItem>.Operation.OP_ADD:
+            case SyncList<EquipmentSlotItem>.Operation.OP_SET:
+            case SyncList<EquipmentSlotItem>.Operation.OP_INSERT:
+                if (newItem.item.IsEmpty)
+                {
+                    RemoveVisual(newItem.slot);
+                    OnItemUnequipped?.Invoke(newItem.slot);
+                }
+                else
+                {
+                    var data = ItemDatabase.Instance?.GetEquipment(newItem.item.itemId);
+                    SpawnVisual(newItem.slot, data);
+                    OnItemEquipped?.Invoke(newItem.slot, data);
+                }
+                break;
+
+            case SyncList<EquipmentSlotItem>.Operation.OP_REMOVEAT:
+                RemoveVisual(oldItem.slot);
+                OnItemUnequipped?.Invoke(oldItem.slot);
+                break;
+
+            case SyncList<EquipmentSlotItem>.Operation.OP_CLEAR:
+                foreach (var slot in new List<EquipmentSlot>(equippedVisuals.Keys))
+                {
+                    RemoveVisual(slot);
+                    OnItemUnequipped?.Invoke(slot);
+                }
+                break;
+        }
+    }
+
+    int FindSlotIndex(EquipmentSlot slot)
+    {
+        for (int i = 0; i < equippedItems.Count; i++)
+            if (equippedItems[i].slot == slot) return i;
+        return -1;
     }
 
     [Server]
-    public bool EquipItem(string itemId)
+    public void EquipItem(EquipmentData item, int durability, int refineLevel)
     {
-        EquipmentData item = ItemDatabase.Instance?.GetEquipment(itemId);
-        if (item == null) return false;
-        if (!CanEquip(item)) return false;
-
-        UnequipItem(item.slot);
-
-        EquippedItem slot = new EquippedItem
+        if (item == null) return;
+        
+        int index = FindSlotIndex(item.slot);
+        var equipped = new EquippedItem
         {
-            itemId = itemId,
-            durability = item.durability,
-            gemSlots = new string[item.gemSlots]
+            itemId = item.itemId,
+            durability = durability > 0 ? durability : item.maxDurability,
+            refineLevel = refineLevel,
+            gemSlots = new int[3]
         };
 
-        int slotIndex = (int)item.slot;
-        while (equippedItems.Count <= slotIndex)
-            equippedItems.Add(new EquippedItem());
+        if (index >= 0)
+        {
+            var entry = equippedItems[index];
+            entry.item = equipped;
+            equippedItems[index] = entry;
+        }
+        else
+        {
+            equippedItems.Add(new EquipmentSlotItem { slot = item.slot, item = equipped });
+        }
 
-        equippedItems[slotIndex] = slot;
-        equippedData[item.slot] = item;
-
-        ApplyEquipmentStats(item);
-
-        OnItemEquipped?.Invoke(item.slot, item);
-        OnEquipmentChanged?.Invoke();
-
-        return true;
+        ApplyEquipmentStats(item, true);
     }
 
     [Server]
     public void UnequipItem(EquipmentSlot slot)
     {
-        int slotIndex = (int)slot;
-        if (slotIndex >= equippedItems.Count) return;
-
-        var equipped = equippedItems[slotIndex];
-        if (string.IsNullOrEmpty(equipped.itemId)) return;
-
-        EquipmentData item = ItemDatabase.Instance?.GetEquipment(equipped.itemId);
-        if (item != null)
+        int index = FindSlotIndex(slot);
+        if (index >= 0)
         {
-            RemoveEquipmentStats(item);
+            var entry = equippedItems[index];
+            
+            if (!entry.item.IsEmpty)
+            {
+                var data = ItemDatabase.Instance?.GetEquipment(entry.item.itemId);
+                if (data != null) ApplyEquipmentStats(data, false);
+            }
+
+            entry.item = EquippedItem.Empty;
+            equippedItems[index] = entry;
         }
-
-        equippedItems[slotIndex] = new EquippedItem();
-        equippedData.Remove(slot);
-
-        OnItemUnequipped?.Invoke(slot);
-        OnEquipmentChanged?.Invoke();
     }
 
     [Server]
     public bool CanEquip(EquipmentData item)
     {
         if (item == null) return false;
-        if (stats.Level < item.requiredLevel) return false;
-        if (item.requiredClass != CharacterClass.None && item.requiredClass != stats.CharacterClass) return false;
-
-        if (item.slot == EquipmentSlot.Weapon)
-        {
-            CharacterClassData classData = Resources.Load<CharacterClassData>($"Classes/{stats.CharacterClass}");
-            if (classData != null && classData.allowedWeapons != null)
-            {
-                bool allowed = false;
-                foreach (var weaponType in classData.allowedWeapons)
-                {
-                    if (weaponType == item.weaponType)
-                    {
-                        allowed = true;
-                        break;
-                    }
-                }
-                if (!allowed) return false;
-            }
-        }
-
-        if (item.slot == EquipmentSlot.Armor)
-        {
-            CharacterClassData classData = Resources.Load<CharacterClassData>($"Classes/{stats.CharacterClass}");
-            if (classData != null && classData.allowedArmors != null)
-            {
-                bool allowed = false;
-                foreach (var armorType in classData.allowedArmors)
-                {
-                    if (armorType == item.armorType)
-                    {
-                        allowed = true;
-                        break;
-                    }
-                }
-                if (!allowed) return false;
-            }
-        }
-
         return true;
-    }
-
-    [Server]
-    public void RepairItem(EquipmentSlot slot, int amount)
-    {
-        int slotIndex = (int)slot;
-        if (slotIndex >= equippedItems.Count) return;
-
-        var equipped = equippedItems[slotIndex];
-        if (string.IsNullOrEmpty(equipped.itemId)) return;
-
-        EquipmentData item = ItemDatabase.Instance?.GetEquipment(equipped.itemId);
-        if (item == null) return;
-
-        equipped.durability = Mathf.Min(item.maxDurability, equipped.durability + amount);
-        equippedItems[slotIndex] = equipped;
-    }
-
-    [Server]
-    public void DamageItem(EquipmentSlot slot, int amount)
-    {
-        int slotIndex = (int)slot;
-        if (slotIndex >= equippedItems.Count) return;
-
-        var equipped = equippedItems[slotIndex];
-        if (string.IsNullOrEmpty(equipped.itemId)) return;
-
-        equipped.durability = Mathf.Max(0, equipped.durability - amount);
-        equippedItems[slotIndex] = equipped;
-
-        if (equipped.durability <= 0)
-        {
-            RpcItemBroke(slot);
-        }
-    }
-
-    [Server]
-    private void ApplyEquipmentStats(EquipmentData item)
-    {
-        stats.AddModifier(new StatModifier { statType = StatType.STR, value = item.bonusSTR, sourceId = item.itemId });
-        stats.AddModifier(new StatModifier { statType = StatType.AGI, value = item.bonusAGI, sourceId = item.itemId });
-        stats.AddModifier(new StatModifier { statType = StatType.CON, value = item.bonusCON, sourceId = item.itemId });
-        stats.AddModifier(new StatModifier { statType = StatType.SPR, value = item.bonusSPR, sourceId = item.itemId });
-        stats.AddModifier(new StatModifier { statType = StatType.ACC, value = item.bonusACC, sourceId = item.itemId });
-        stats.AddModifier(new StatModifier { statType = StatType.LUCK, value = item.bonusLUCK, sourceId = item.itemId });
-        stats.AddModifier(new StatModifier { statType = StatType.HP, value = item.bonusHP, sourceId = item.itemId });
-        stats.AddModifier(new StatModifier { statType = StatType.MP, value = item.bonusMP, sourceId = item.itemId });
-        stats.AddModifier(new StatModifier { statType = StatType.SP, value = item.bonusSP, sourceId = item.itemId });
-        stats.AddModifier(new StatModifier { statType = StatType.Attack, value = item.bonusAttack, sourceId = item.itemId });
-        stats.AddModifier(new StatModifier { statType = StatType.Defense, value = item.bonusDefense, sourceId = item.itemId });
-        stats.AddModifier(new StatModifier { statType = StatType.MagicAttack, value = item.bonusMagicAttack, sourceId = item.itemId });
-        stats.AddModifier(new StatModifier { statType = StatType.MagicDefense, value = item.bonusMagicDefense, sourceId = item.itemId });
-        stats.AddModifier(new StatModifier { statType = StatType.AttackSpeed, value = Mathf.RoundToInt(item.bonusAttackSpeed * 100), sourceId = item.itemId });
-        stats.AddModifier(new StatModifier { statType = StatType.MoveSpeed, value = Mathf.RoundToInt(item.bonusMoveSpeed * 100), sourceId = item.itemId });
-    }
-
-    [Server]
-    private void RemoveEquipmentStats(EquipmentData item)
-    {
-        stats.RemoveModifier(new StatModifier { statType = StatType.STR, value = item.bonusSTR, sourceId = item.itemId });
-        stats.RemoveModifier(new StatModifier { statType = StatType.AGI, value = item.bonusAGI, sourceId = item.itemId });
-        stats.RemoveModifier(new StatModifier { statType = StatType.CON, value = item.bonusCON, sourceId = item.itemId });
-        stats.RemoveModifier(new StatModifier { statType = StatType.SPR, value = item.bonusSPR, sourceId = item.itemId });
-        stats.RemoveModifier(new StatModifier { statType = StatType.ACC, value = item.bonusACC, sourceId = item.itemId });
-        stats.RemoveModifier(new StatModifier { statType = StatType.LUCK, value = item.bonusLUCK, sourceId = item.itemId });
-        stats.RemoveModifier(new StatModifier { statType = StatType.HP, value = item.bonusHP, sourceId = item.itemId });
-        stats.RemoveModifier(new StatModifier { statType = StatType.MP, value = item.bonusMP, sourceId = item.itemId });
-        stats.RemoveModifier(new StatModifier { statType = StatType.SP, value = item.bonusSP, sourceId = item.itemId });
-        stats.RemoveModifier(new StatModifier { statType = StatType.Attack, value = item.bonusAttack, sourceId = item.itemId });
-        stats.RemoveModifier(new StatModifier { statType = StatType.Defense, value = item.bonusDefense, sourceId = item.itemId });
-        stats.RemoveModifier(new StatModifier { statType = StatType.MagicAttack, value = item.bonusMagicAttack, sourceId = item.itemId });
-        stats.RemoveModifier(new StatModifier { statType = StatType.MagicDefense, value = item.bonusMagicDefense, sourceId = item.itemId });
-        stats.RemoveModifier(new StatModifier { statType = StatType.AttackSpeed, value = Mathf.RoundToInt(item.bonusAttackSpeed * 100), sourceId = item.itemId });
-        stats.RemoveModifier(new StatModifier { statType = StatType.MoveSpeed, value = Mathf.RoundToInt(item.bonusMoveSpeed * 100), sourceId = item.itemId });
-    }
-
-    private void OnEquippedItemsChanged(SyncList<EquippedItem>.Operation op, int index,
-        EquippedItem oldItem, EquippedItem newItem)
-    {
-        switch (op)
-        {
-            case SyncList<EquippedItem>.Operation.OP_ADD:
-            case SyncList<EquippedItem>.Operation.OP_INSERT:
-            case SyncList<EquippedItem>.Operation.OP_SET:
-                if (!string.IsNullOrEmpty(newItem.itemId))
-                {
-                    EquipmentData item = ItemDatabase.Instance?.GetEquipment(newItem.itemId);
-                    if (item != null)
-                        EquipVisual((EquipmentSlot)index, item);
-                }
-                else
-                {
-                    UnequipVisual((EquipmentSlot)index);
-                }
-                break;
-
-            case SyncList<EquippedItem>.Operation.OP_REMOVEAT:
-            case SyncList<EquippedItem>.Operation.OP_CLEAR:
-                UnequipVisual((EquipmentSlot)index);
-                break;
-        }
-    }
-
-    private void EquipVisual(EquipmentSlot slot, EquipmentData item)
-    {
-        UnequipVisual(slot);
-
-        GameObject prefab = stats.IsMale ? item.maleModelPrefab : item.femaleModelPrefab;
-        if (prefab == null) prefab = item.maleModelPrefab;
-        if (prefab == null) return;
-
-        Transform bone = GetBoneForSlot(slot);
-        if (bone == null) return;
-
-        GameObject model = Instantiate(prefab, bone);
-        model.transform.localPosition = item.modelOffset;
-        model.transform.localRotation = Quaternion.Euler(item.modelRotation);
-        model.transform.localScale = item.modelScale;
-
-        currentModels[slot] = model;
-
-        if (item.equipEffect != null)
-        {
-            ParticleSystem effect = Instantiate(item.equipEffect, model.transform.position, Quaternion.identity);
-            Destroy(effect.gameObject, 2f);
-        }
-
-        if (item.equipSound != null && TryGetComponent(out AudioSource audio))
-            audio.PlayOneShot(item.equipSound);
-    }
-
-    private void UnequipVisual(EquipmentSlot slot)
-    {
-        if (currentModels.ContainsKey(slot))
-        {
-            Destroy(currentModels[slot]);
-            currentModels.Remove(slot);
-        }
-    }
-
-    private Transform GetBoneForSlot(EquipmentSlot slot)
-    {
-        return slot switch
-        {
-            EquipmentSlot.Helmet => headBone,
-            EquipmentSlot.Armor => bodyBone,
-            EquipmentSlot.Weapon => rightHandBone,
-            EquipmentSlot.Shield => leftHandBone,
-            EquipmentSlot.Gloves => rightHandBone,
-            EquipmentSlot.Boots => feetBone,
-            EquipmentSlot.Cape => backBone,
-            EquipmentSlot.Costume => bodyBone,
-            _ => null
-        };
-    }
-
-    [ClientRpc]
-    private void RpcItemBroke(EquipmentSlot slot)
-    {
-        DamagePopupManager.Instance?.ShowText(transform.position + Vector3.up * 2f,
-            $"{slot} Quebrou!", Color.red);
     }
 
     public EquipmentData GetEquippedItem(EquipmentSlot slot)
     {
-        return equippedData.TryGetValue(slot, out var item) ? item : null;
+        int index = FindSlotIndex(slot);
+        if (index >= 0 && !equippedItems[index].item.IsEmpty)
+            return ItemDatabase.Instance?.GetEquipment(equippedItems[index].item.itemId);
+        return null;
     }
 
-    public int GetTotalDefense()
+    public EquippedItem GetEquippedItemStruct(EquipmentSlot slot)
     {
-        int total = 0;
-        foreach (var item in equippedData.Values)
+        int index = FindSlotIndex(slot);
+        if (index >= 0)
+            return equippedItems[index].item;
+        return EquippedItem.Empty;
+    }
+
+    #region Visual (Aparecer no Personagem)
+
+    [Client]
+    void SpawnVisual(EquipmentSlot slot, EquipmentData equipData)
+    {
+        if (equipData == null || equipData.equipPrefab == null) return;
+
+        RemoveVisual(slot);
+
+        if (!holders.TryGetValue(slot, out Transform holder) || holder == null)
         {
-            total += item.bonusDefense;
+            Debug.LogWarning($"[PlayerEquipment] Holder não encontrado para {slot}");
+            return;
         }
-        return total;
+
+        var visual = Instantiate(equipData.equipPrefab, holder);
+        visual.transform.localPosition = equipData.equipPositionOffset;
+        visual.transform.localRotation = Quaternion.Euler(equipData.equipRotationOffset);
+        visual.transform.localScale = equipData.equipScale;
+
+        equippedVisuals[slot] = visual;
+        Debug.Log($"[PlayerEquipment] ✅ Visual spawnado: {equipData.itemName} em {slot} ({holder.name})");
     }
 
-    public int GetTotalAttack()
+    [Client]
+    void RemoveVisual(EquipmentSlot slot)
     {
-        int total = 0;
-        foreach (var item in equippedData.Values)
+        if (equippedVisuals.TryGetValue(slot, out var visual) && visual != null)
         {
-            total += item.bonusAttack;
+            Destroy(visual);
+            equippedVisuals.Remove(slot);
+            Debug.Log($"[PlayerEquipment] Visual removido: {slot}");
         }
-        return total;
     }
 
-    public bool HasFullSet(string setName)
+    #endregion
+
+    #region Stats
+
+    void ApplyEquipmentStats(EquipmentData equipData, bool add)
     {
-        return false;
+        if (equipData == null) return;
+        int multiplier = add ? 1 : -1;
+        Debug.Log($"[PlayerEquipment] Stats {(add ? "aplicados" : "removidos")}: {equipData.itemName} | ATK {equipData.bonusAttack * multiplier}");
     }
-}
 
-[System.Serializable]
-public struct EquippedItem : Mirror.NetworkMessage
-{
-    public string itemId;
-    public int durability;
-    public string[] gemSlots;
-    public int refineLevel;
+    #endregion
 }

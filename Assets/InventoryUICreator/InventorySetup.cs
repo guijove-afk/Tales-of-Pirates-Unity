@@ -1,118 +1,180 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using System.Reflection;
 
-///
-/// Adicione este script junto com InventoryUICreator.
-/// Depois de criar a UI, clique em "Setup References" para conectar tudo.
-///
 [ExecuteInEditMode]
 public class InventorySetup : MonoBehaviour
 {
-    [Header("Referências do Player")]
-    [SerializeField] private InventorySystem inventorySystem;
+    [Header("Referências do Player (deixe vazio para auto-detectar)")]
+    [SerializeField] private PlayerInventory playerInventory;
     [SerializeField] private PlayerEquipment playerEquipment;
-    
-    [Header("Referência do Database")]
-    [SerializeField] private ItemDatabase itemDatabase;  // <-- NOVO CAMPO!
 
     [ContextMenu("Setup References")]
     public void SetupReferences()
     {
-        // Encontra ou adiciona InventoryUI
         var inventoryUI = GetComponent<InventoryUI>();
         if (inventoryUI == null)
+        {
             inventoryUI = gameObject.AddComponent<InventoryUI>();
+            Debug.Log("[InventorySetup] InventoryUI adicionado.");
+        }
 
-        // Configura referências
-        inventoryUI.SetField("inventorySystem", inventorySystem);
-        inventoryUI.SetField("playerEquipment", playerEquipment);
-
-        // Encontra panels
         var panel = transform.Find("InventoryPanel");
         if (panel != null)
         {
-            inventoryUI.SetField("inventoryPanel", panel.gameObject);
+            SetField(inventoryUI, "inventoryPanel", panel.gameObject);
+            Debug.Log("[InventorySetup] InventoryPanel configurado.");
 
-            var grid = panel.Find("GridPanel/ScrollView/Viewport/InventoryGrid");
-            if (grid != null) inventoryUI.SetField("inventoryGrid", grid);
+            var grid = panel.Find("InventoryGrid");
+            if (grid != null)
+            {
+                SetField(inventoryUI, "inventoryGrid", grid);
+                Debug.Log("[InventorySetup] InventoryGrid configurado.");
+            }
 
             var equipPanel = panel.Find("EquipmentPanel");
-            if (equipPanel != null) inventoryUI.SetField("equipmentPanel", equipPanel);
+            if (equipPanel != null)
+            {
+                SetField(inventoryUI, "equipmentPanel", equipPanel);
+                Debug.Log("[InventorySetup] EquipmentPanel configurado.");
+            }
 
             var tooltip = panel.Find("TooltipPanel");
-            if (tooltip != null) inventoryUI.SetField("tooltipPanel", tooltip.gameObject);
+            if (tooltip != null)
+            {
+                SetField(inventoryUI, "tooltipPanel", tooltip.gameObject);
+                Debug.Log("[InventorySetup] TooltipPanel configurado.");
 
-            // Configura tooltip texts
-            var tooltipName = tooltip?.Find("ItemName")?.GetComponent<TextMeshProUGUI>();
-            var tooltipStats = tooltip?.Find("Stats")?.GetComponent<TextMeshProUGUI>();
+                var tooltipName = FindTextComponent(tooltip, "TooltipName");
+                var tooltipStats = FindTextComponent(tooltip, "TooltipStats");
+                if (tooltipName != null) SetField(inventoryUI, "tooltipName", tooltipName);
+                if (tooltipStats != null) SetField(inventoryUI, "tooltipStats", tooltipStats);
+            }
 
-            if (tooltipName != null) inventoryUI.SetField("tooltipName", tooltipName);
-            if (tooltipStats != null) inventoryUI.SetField("tooltipStats", tooltipStats);
+            var title = panel.Find("Title");
+            if (title != null) SetField(inventoryUI, "dragHandle", title);
         }
 
-        // Configura slots de inventário
-        var gridTransform = transform.Find("InventoryPanel/GridPanel/ScrollView/Viewport/InventoryGrid");
+        var dragCanvas = GameObject.Find("DragCanvas")?.GetComponent<Canvas>();
+        if (dragCanvas != null)
+        {
+            SetField(inventoryUI, "dragCanvas", dragCanvas);
+            Debug.Log("[InventorySetup] DragCanvas configurado.");
+        }
+        else
+        {
+            Debug.LogWarning("[InventorySetup] DragCanvas não encontrado!");
+        }
+
+        var gridTransform = transform.Find("InventoryPanel/InventoryGrid");
         if (gridTransform != null)
         {
             var slots = gridTransform.GetComponentsInChildren<ItemSlotUI>(true);
+            Debug.Log($"[InventorySetup] {slots.Length} ItemSlotUI encontrados.");
+
             foreach (var slot in slots)
             {
-                // Configura referências internas do slot
-                var bg = slot.transform.GetComponent<Image>();
+                var bg = slot.GetComponent<Image>();
                 var icon = slot.transform.Find("Icon")?.GetComponent<Image>();
-                var qty = slot.transform.Find("Quantity")?.GetComponent<TextMeshProUGUI>();
+                var qty = FindTextComponent(slot.transform, "Quantity");
                 var hl = slot.transform.Find("Highlight")?.GetComponent<Image>();
 
-                if (bg != null) slot.SetField("backgroundImage", bg);
-                if (icon != null) slot.SetField("iconImage", icon);
-                if (qty != null) slot.SetField("quantityText", qty);
-                if (hl != null) slot.SetField("highlightImage", hl);
+                if (bg != null) SetField(slot, "backgroundImage", bg);
+                if (icon != null) SetField(slot, "iconImage", icon);
+                if (qty != null) SetField(slot, "quantityText", qty);
+                if (hl != null) SetField(slot, "highlightImage", hl);
             }
         }
 
-        // Configura slots de equipamento
         var equipTransform = transform.Find("InventoryPanel/EquipmentPanel");
         if (equipTransform != null)
         {
             var equipSlots = equipTransform.GetComponentsInChildren<EquipmentSlotUI>(true);
+            Debug.Log($"[InventorySetup] {equipSlots.Length} EquipmentSlotUI encontrados.");
+
             foreach (var slot in equipSlots)
             {
-                var bg = slot.transform.GetComponent<Image>();
+                var bg = slot.GetComponent<Image>();
                 var icon = slot.transform.Find("Icon")?.GetComponent<Image>();
-                var label = slot.transform.Find("Label")?.GetComponent<TextMeshProUGUI>();
+                var label = FindTextComponent(slot.transform, "Label");
                 var empty = slot.transform.Find("EmptyIndicator")?.gameObject;
-                var nameTxt = slot.transform.Find("ItemName")?.GetComponent<TextMeshProUGUI>();
+                var nameTxt = FindTextComponent(slot.transform, "ItemName");
 
-                if (bg != null) slot.SetField("backgroundImage", bg);
-                if (icon != null) slot.SetField("iconImage", icon);
-                if (label != null) slot.SetField("labelText", label);
-                if (empty != null) slot.SetField("emptyIndicator", empty);
-                if (nameTxt != null) slot.SetField("itemNameText", nameTxt);
+                if (bg != null) SetField(slot, "backgroundImage", bg);
+                if (icon != null) SetField(slot, "iconImage", icon);
+                if (label != null) SetField(slot, "labelText", label);
+                if (empty != null) SetField(slot, "emptyIndicator", empty);
+                if (nameTxt != null) SetField(slot, "itemNameText", nameTxt);
 
-                // Detecta tipo pelo nome
-                if (slot.name.Contains("Weapon")) slot.SetField("slotType", EquipmentSlot.Weapon);
-                else if (slot.name.Contains("Armor")) slot.SetField("slotType", EquipmentSlot.Armor);
-                else if (slot.name.Contains("Helmet")) slot.SetField("slotType", EquipmentSlot.Helmet);
-                else if (slot.name.Contains("Shield")) slot.SetField("slotType", EquipmentSlot.Shield);
-                else if (slot.name.Contains("Gloves")) slot.SetField("slotType", EquipmentSlot.Gloves);
-                else if (slot.name.Contains("Boots")) slot.SetField("slotType", EquipmentSlot.Boots);
+                EquipmentSlot slotType = DetectSlotType(slot.name);
+                SetField(slot, "slotType", slotType);
+                SetField(slot, "slotLabel", GetSlotLabel(slotType));
             }
         }
 
-        Debug.Log("[InventorySetup] Referências configuradas! Verifique no Inspector.");
+        Debug.Log("[InventorySetup] ✅ Referências configuradas com sucesso!");
     }
-}
 
-// Extension method para facilitar
-public static class ReflectionHelper
-{
-    public static void SetField(this object obj, string fieldName, object value)
+    void SetField(object obj, string fieldName, object value)
     {
-        var field = obj.GetType().GetField(fieldName, System.Reflection.BindingFlags.NonPublic |
-            System.Reflection.BindingFlags.Instance |
-            System.Reflection.BindingFlags.Public);
+        var field = obj.GetType().GetField(fieldName,
+            BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public);
         if (field != null)
             field.SetValue(obj, value);
+        else
+            Debug.LogWarning($"[InventorySetup] Campo '{fieldName}' não encontrado em {obj.GetType().Name}");
+    }
+
+    TextMeshProUGUI FindTextComponent(Transform parent, string childName)
+    {
+        var child = parent.Find(childName);
+        if (child == null) return null;
+        return child.GetComponent<TextMeshProUGUI>();
+    }
+
+    EquipmentSlot DetectSlotType(string gameObjectName)
+    {
+        if (gameObjectName.Contains("Helmet")) return EquipmentSlot.Helmet;
+        if (gameObjectName.Contains("Armor")) return EquipmentSlot.Armor;
+        if (gameObjectName.Contains("Weapon")) return EquipmentSlot.Weapon;
+        if (gameObjectName.Contains("Shield")) return EquipmentSlot.Shield;
+        if (gameObjectName.Contains("Gloves")) return EquipmentSlot.Gloves;
+        if (gameObjectName.Contains("Boots")) return EquipmentSlot.Boots;
+        if (gameObjectName.Contains("Cape")) return EquipmentSlot.Cape;
+        if (gameObjectName.Contains("Belt")) return EquipmentSlot.Belt;
+        if (gameObjectName.Contains("Earring")) return EquipmentSlot.Earring;
+        if (gameObjectName.Contains("Necklace")) return EquipmentSlot.Necklace;
+        if (gameObjectName.Contains("Ring1")) return EquipmentSlot.Ring1;
+        if (gameObjectName.Contains("Ring2")) return EquipmentSlot.Ring2;
+        if (gameObjectName.Contains("Tattoo")) return EquipmentSlot.Tattoo;
+        if (gameObjectName.Contains("Costume")) return EquipmentSlot.Costume;
+        if (gameObjectName.Contains("Pet")) return EquipmentSlot.Pet;
+        if (gameObjectName.Contains("Mount")) return EquipmentSlot.Mount;
+        return EquipmentSlot.Weapon;
+    }
+
+    string GetSlotLabel(EquipmentSlot slot)
+    {
+        return slot switch
+        {
+            EquipmentSlot.Helmet => "Capacete",
+            EquipmentSlot.Armor => "Armadura",
+            EquipmentSlot.Weapon => "Arma",
+            EquipmentSlot.Shield => "Escudo",
+            EquipmentSlot.Gloves => "Luvas",
+            EquipmentSlot.Boots => "Botas",
+            EquipmentSlot.Cape => "Capa",
+            EquipmentSlot.Belt => "Cinto",
+            EquipmentSlot.Earring => "Brinco",
+            EquipmentSlot.Necklace => "Colar",
+            EquipmentSlot.Ring1 => "Anel 1",
+            EquipmentSlot.Ring2 => "Anel 2",
+            EquipmentSlot.Tattoo => "Tatuagem",
+            EquipmentSlot.Costume => "Traje",
+            EquipmentSlot.Pet => "Mascote",
+            EquipmentSlot.Mount => "Montaria",
+            _ => "Slot"
+        };
     }
 }

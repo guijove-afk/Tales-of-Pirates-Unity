@@ -1,29 +1,24 @@
 using UnityEngine;
 
-[CreateAssetMenu(fileName = "NewItem", menuName = "TOP/Item")]
+[CreateAssetMenu(fileName = "NewItem", menuName = "Tales of Pirates/Item Data")]
 public class ItemData : ScriptableObject
 {
     [Header("Informações Básicas")]
-    public string itemId;
-    public string itemName;
-    [TextArea(3, 5)]
-    public string description;
-    
-    [Header("Visual")]
+    public int itemId;
+    public string itemName = "Item";
+    public string description = "";
     public Sprite icon;
     public int maxStack = 1;
-    
-    [Header("Propriedades")]
-    public bool isDroppable = true;
-    public ItemType itemType;
-    public ItemRarity rarity = ItemRarity.Normal;
-    
-    [Header("Efeitos (opcional)")]
-    public ParticleSystem useEffect;   // <-- já existia, usado por ConsumableData
-    public AudioClip useSound;         // <-- já existia, usado por ConsumableData
-    
-    [Header("Drop no Mundo")]
-    public GameObject worldModelPrefab;  // <-- NOVO: modelo 3D no chão
-    public Vector3 dropRotation;         // <-- NOVO: rotação ao dropar
-    public float dropScale = 1f;       // <-- NOVO: escala ao dropar
+    public int buyPrice;
+    public int sellPrice;
+
+    [Header("Tipo")]
+    public ItemType itemType = ItemType.Other;
+
+    [Header("Drop no Mundo (WorldItem)")]
+    public GameObject worldModelPrefab;
+    public Vector3 dropRotation = Vector3.zero;
+    public Vector3 dropScale = Vector3.one;
+
+    public bool IsStackable => maxStack > 1;
 }

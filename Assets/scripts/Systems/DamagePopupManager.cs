@@ -1,4 +1,5 @@
 using UnityEngine;
+using TMPro;
 using System.Collections.Generic;
 
 public class DamagePopupManager : MonoBehaviour
@@ -7,6 +8,7 @@ public class DamagePopupManager : MonoBehaviour
 
     [Header("Settings")]
     [SerializeField] private GameObject damagePopupPrefab;
+    [SerializeField] private Transform canvasTransform;
     [SerializeField] private int poolSize = 50;
     [SerializeField] private float popupDuration = 1.5f;
     [SerializeField] private float popupSpeed = 2f;
@@ -20,7 +22,7 @@ public class DamagePopupManager : MonoBehaviour
     private class ActivePopup
     {
         public GameObject gameObject;
-        public TextMesh textMesh;
+        public TextMeshProUGUI textMesh;
         public float startTime;
         public Vector3 startPosition;
         public Vector3 velocity;
@@ -38,6 +40,14 @@ public class DamagePopupManager : MonoBehaviour
         DontDestroyOnLoad(gameObject);
 
         mainCamera = Camera.main;
+
+        if (canvasTransform == null)
+        {
+            Canvas canvas = FindAnyObjectByType<Canvas>();
+            if (canvas != null)
+                canvasTransform = canvas.transform;
+        }
+
         InitializePool();
     }
 
@@ -50,22 +60,23 @@ public class DamagePopupManager : MonoBehaviour
 
         for (int i = 0; i < poolSize; i++)
         {
-            GameObject popup = Instantiate(damagePopupPrefab, transform);
+            GameObject popup = Instantiate(damagePopupPrefab, canvasTransform);
             popup.SetActive(false);
             popupPool.Enqueue(popup);
         }
     }
 
+    // 🔧 CORREÇÃO: Criar prefab com TextMeshProUGUI para Canvas
     private GameObject CreateDefaultPopupPrefab()
     {
         GameObject go = new GameObject("DamagePopup");
-        TextMesh textMesh = go.AddComponent<TextMesh>();
-        textMesh.characterSize = 0.1f;
-        textMesh.fontSize = 48;
-        textMesh.anchor = TextAnchor.MiddleCenter;
-        textMesh.alignment = TextAlignment.Center;
+        RectTransform rect = go.AddComponent<RectTransform>();
+        rect.sizeDelta = new Vector2(200, 50);
 
-        go.AddComponent<Billboard>();
+        TextMeshProUGUI textMesh = go.AddComponent<TextMeshProUGUI>();
+        textMesh.fontSize = 36;
+        textMesh.alignment = TextAlignmentOptions.Center;
+        textMesh.color = Color.white;
 
         return go;
     }
@@ -85,7 +96,9 @@ public class DamagePopupManager : MonoBehaviour
             }
 
             float t = elapsed / popupDuration;
-            popup.gameObject.transform.position = popup.startPosition + popup.velocity * elapsed;
+
+            // 🔧 CORREÇÃO: Mover em screen space (Canvas)
+            popup.gameObject.transform.position += popup.velocity * Time.deltaTime;
 
             float alpha = 1f - Mathf.Pow(t, 2f);
             popup.textMesh.color = new Color(popup.color.r, popup.color.g, popup.color.b, alpha);
@@ -95,26 +108,28 @@ public class DamagePopupManager : MonoBehaviour
         }
     }
 
-    public void ShowDamage(Vector3 position, int damage, bool isCritical = false)
+    // 🔧 CORREÇÃO: Todos os métodos agora usam TextMeshProUGUI
+    public void ShowDamage(Vector3 worldPosition, int damage, bool isCritical = false)
     {
         GameObject popup = GetPopup();
         if (popup == null) return;
 
-        TextMesh textMesh = popup.GetComponent<TextMesh>();
+        TextMeshProUGUI textMesh = popup.GetComponent<TextMeshProUGUI>();
         textMesh.text = damage.ToString();
 
         Color color = isCritical ? new Color(1f, 0.3f, 0f) : Color.white;
         if (damage <= 0) color = Color.gray;
-
         textMesh.color = color;
 
+        // Converter world position para screen position
+        Vector3 screenPos = mainCamera.WorldToScreenPoint(worldPosition);
         Vector3 offset = new Vector3(
-            Random.Range(-popupSpread, popupSpread),
-            0,
-            Random.Range(-popupSpread, popupSpread)
+            Random.Range(-popupSpread * 100, popupSpread * 100),
+            Random.Range(-popupSpread * 50, popupSpread * 50),
+            0
         );
 
-        popup.transform.position = position + offset;
+        popup.transform.position = screenPos + offset;
         popup.SetActive(true);
 
         activePopups.Add(new ActivePopup
@@ -122,28 +137,29 @@ public class DamagePopupManager : MonoBehaviour
             gameObject = popup,
             textMesh = textMesh,
             startTime = Time.time,
-            startPosition = position + offset + Vector3.up * 0.5f,
-            velocity = new Vector3(Random.Range(-0.5f, 0.5f), popupSpeed, 0),
+            startPosition = screenPos + offset,
+            velocity = new Vector3(Random.Range(-0.5f, 0.5f), popupSpeed * 50f, 0),
             color = color
         });
     }
 
-    public void ShowHeal(Vector3 position, int amount)
+    public void ShowHeal(Vector3 worldPosition, int amount)
     {
         GameObject popup = GetPopup();
         if (popup == null) return;
 
-        TextMesh textMesh = popup.GetComponent<TextMesh>();
-        textMesh.text = $"+{amount}";
+        TextMeshProUGUI textMesh = popup.GetComponent<TextMeshProUGUI>();
+        textMesh.text = "+" + amount;
         textMesh.color = Color.green;
 
+        Vector3 screenPos = mainCamera.WorldToScreenPoint(worldPosition);
         Vector3 offset = new Vector3(
-            Random.Range(-popupSpread, popupSpread),
+            Random.Range(-popupSpread * 100, popupSpread * 100),
             0,
-            Random.Range(-popupSpread, popupSpread)
+            0
         );
 
-        popup.transform.position = position + offset;
+        popup.transform.position = screenPos + offset;
         popup.SetActive(true);
 
         activePopups.Add(new ActivePopup
@@ -151,22 +167,23 @@ public class DamagePopupManager : MonoBehaviour
             gameObject = popup,
             textMesh = textMesh,
             startTime = Time.time,
-            startPosition = position + offset + Vector3.up * 0.5f,
-            velocity = new Vector3(0, popupSpeed * 0.8f, 0),
+            startPosition = screenPos + offset,
+            velocity = new Vector3(0, popupSpeed * 40f, 0),
             color = Color.green
         });
     }
 
-    public void ShowText(Vector3 position, string text, Color color)
+    public void ShowText(Vector3 worldPosition, string text, Color color)
     {
         GameObject popup = GetPopup();
         if (popup == null) return;
 
-        TextMesh textMesh = popup.GetComponent<TextMesh>();
+        TextMeshProUGUI textMesh = popup.GetComponent<TextMeshProUGUI>();
         textMesh.text = text;
         textMesh.color = color;
 
-        popup.transform.position = position;
+        Vector3 screenPos = mainCamera.WorldToScreenPoint(worldPosition);
+        popup.transform.position = screenPos;
         popup.SetActive(true);
 
         activePopups.Add(new ActivePopup
@@ -174,10 +191,21 @@ public class DamagePopupManager : MonoBehaviour
             gameObject = popup,
             textMesh = textMesh,
             startTime = Time.time,
-            startPosition = position,
-            velocity = new Vector3(0, popupSpeed * 0.5f, 0),
+            startPosition = screenPos,
+            velocity = new Vector3(0, popupSpeed * 25f, 0),
             color = color
         });
+    }
+
+    // 🔧 NOVO: Métodos que PlayerCombat espera
+    public void ShowCritical(Vector3 worldPosition, int damage)
+    {
+        ShowDamage(worldPosition, damage, true);
+    }
+
+    public void ShowMiss(Vector3 worldPosition)
+    {
+        ShowText(worldPosition, "MISS", new Color(0.9f, 0.9f, 0.9f, 1f));
     }
 
     private GameObject GetPopup()
@@ -199,24 +227,5 @@ public class DamagePopupManager : MonoBehaviour
     {
         popup.gameObject.SetActive(false);
         popupPool.Enqueue(popup.gameObject);
-    }
-}
-
-public class Billboard : MonoBehaviour
-{
-    private Camera mainCamera;
-
-    void Start()
-    {
-        mainCamera = Camera.main;
-    }
-
-    void LateUpdate()
-    {
-        if (mainCamera != null)
-        {
-            transform.LookAt(transform.position + mainCamera.transform.rotation * Vector3.forward,
-                mainCamera.transform.rotation * Vector3.up);
-        }
     }
 }
