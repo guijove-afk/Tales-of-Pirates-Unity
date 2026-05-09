@@ -37,11 +37,8 @@ public class EnemyStats : NetworkBehaviour, ICharacterStats
     [SerializeField] private float _respawnTime = 10f;
 
     [Header("Death Animation")]
-    [Tooltip("Nome exato do estado de morte no Animator (ex: Morrendo, Die, Death)")]
     [SerializeField] private string deathStateName = "Morrendo";
-    [Tooltip("Duração do clip 'Morrendo' em segundos")]
     [SerializeField] private float deathAnimationDuration = 1.02f;
-    [Tooltip("Tempo extra no estado 'morto' antes de sumir (pose no chão)")]
     [SerializeField] private float deathPoseDuration = 1.5f;
 
     [Header("Debug")]
@@ -111,7 +108,7 @@ public class EnemyStats : NetworkBehaviour, ICharacterStats
         _spawnRotation = transform.rotation;
 
         if (_animator == null)
-            Debug.LogError($"[EnemyStats] Animator NÃO ENCONTRADO em {gameObject.name}! Certifique-se de que o Animator está em um filho.");
+            Debug.LogError($"[EnemyStats] Animator NÃO ENCONTRADO em {gameObject.name}!");
     }
 
     void Start()
@@ -138,7 +135,7 @@ public class EnemyStats : NetworkBehaviour, ICharacterStats
         _initialized = true;
 
         if (showDebugLogs)
-            Debug.Log("[EnemyStats] " + _enemyName + " (netId=" + netId + ") inicializado | HP=" + _syncHealth + "/" + _maxHealth + " | ATK=" + _attack + " | DEF=" + _defense);
+            Debug.Log("[EnemyStats] " + _enemyName + " (netId=" + netId + ") inicializado | HP=" + _syncHealth + "/" + _maxHealth);
     }
 
     #endregion
@@ -240,7 +237,7 @@ public class EnemyStats : NetworkBehaviour, ICharacterStats
         targetStats.TakeDamage(damage, netId, DamageType.Physical);
 
         if (showDebugLogs)
-            Debug.Log("[EnemyStats] " + _enemyName + " causando " + damage + " de dano em " + target.name + " (netId=" + target.GetComponent<NetworkIdentity>()?.netId + ")");
+            Debug.Log("[EnemyStats] " + _enemyName + " causando " + damage + " de dano em " + target.name);
 
         RpcOnAttackLanded(target.GetComponent<NetworkIdentity>()?.netId ?? 0, damage);
     }
@@ -330,9 +327,9 @@ public class EnemyStats : NetworkBehaviour, ICharacterStats
     private IEnumerator DeathSequence()
     {
         float totalWait = deathAnimationDuration + deathPoseDuration;
-        
+
         if (showDebugLogs)
-            Debug.Log("[EnemyStats] DeathSequence: aguardando " + totalWait + "s (animação: " + deathAnimationDuration + "s + pose: " + deathPoseDuration + "s)");
+            Debug.Log("[EnemyStats] DeathSequence: aguardando " + totalWait + "s");
 
         yield return new WaitForSeconds(totalWait);
 
@@ -360,10 +357,10 @@ public class EnemyStats : NetworkBehaviour, ICharacterStats
         if (_enemyAI != null) _enemyAI.SetEnabled(true);
         if (_agent != null) _agent.enabled = true;
 
-        // Reativa visibilidade nos clientes
+        // ✅ CORRIGIDO: Reativa visibilidade E a barra de HP nos clientes
         RpcSetVisible(true);
-        
-        // Reseta Animator nos clientes
+
+        // ✅ CORRIGIDO: Reseta Animator nos clientes
         RpcResetAnimator();
 
         if (showDebugLogs)
@@ -393,10 +390,29 @@ public class EnemyStats : NetworkBehaviour, ICharacterStats
         if (showDebugLogs)
             Debug.Log("[EnemyStats] RpcSetVisible(" + visible + ") em " + gameObject.name);
 
+        // ✅ CORRIGIDO: Reativa TODOS os renderers e componentes visuais
         Renderer[] renderers = GetComponentsInChildren<Renderer>(true);
         foreach (var rend in renderers)
         {
             rend.enabled = visible;
+        }
+
+        // ✅ CORRIGIDO: Reativa a barra de HP especificamente
+        EnemyHealthBar healthBar = GetComponentInChildren<EnemyHealthBar>(true);
+        if (healthBar != null)
+        {
+            healthBar.gameObject.SetActive(visible);
+            Debug.Log("[EnemyStats] ✅ EnemyHealthBar reativada!");
+        }
+
+        // ✅ CORRIGIDO: Reativa o círculo de seleção se existir
+        EnemySelection selection = GetComponentInChildren<EnemySelection>(true);
+        if (selection != null)
+        {
+            // Não reativa a seleção aqui — ela só ativa quando o player clica
+            // Mas garante que o GameObject está ativo
+            if (selection.gameObject != gameObject)
+                selection.gameObject.SetActive(visible);
         }
 
         if (visible && !gameObject.activeSelf)
@@ -405,37 +421,33 @@ public class EnemyStats : NetworkBehaviour, ICharacterStats
         }
     }
 
-    /// <summary>
-    /// CORREÇÃO PRINCIPAL: Método reescrito para garantir que a animação de morte toque.
-    /// Tenta Trigger -> Bool -> CrossFade direto como fallback.
-    /// </summary>
     [ClientRpc]
-private void RpcOnDeath()
-{
-    if (showDebugLogs)
-        Debug.Log($"[EnemyStats] RpcOnDeath em {gameObject.name}");
+    private void RpcOnDeath()
+    {
+        if (showDebugLogs)
+            Debug.Log($"[EnemyStats] RpcOnDeath em {gameObject.name}");
 
-    Animator anim = _animator ?? GetComponentInChildren<Animator>();
-    if (anim == null || anim.runtimeAnimatorController == null) return;
+        Animator anim = _animator ?? GetComponentInChildren<Animator>();
+        if (anim == null || anim.runtimeAnimatorController == null) return;
 
-    // 1. Para movimento e ataque
-    anim.SetBool("IsMoving", false);
-    anim.SetBool("IsAttacking", false);
+        // 1. Para movimento e ataque
+        anim.SetBool("IsMoving", false);
+        anim.SetBool("IsAttacking", false);
 
-    // 2. Limpa APENAS triggers de combate (NÃO toca no "Die"!)
-    anim.ResetTrigger("Attack");
-    anim.ResetTrigger("Hit");
+        // 2. Limpa APENAS triggers de combate
+        anim.ResetTrigger("Attack");
+        anim.ResetTrigger("Hit");
 
-    // 3. Dispara morte (apenas isso, nada mais)
-    anim.SetTrigger("Die");
+        // 3. Dispara morte
+        anim.SetTrigger("Die");
 
-    if (showDebugLogs)
-        Debug.Log("[EnemyStats] Trigger 'Die' disparado");
+        if (showDebugLogs)
+            Debug.Log("[EnemyStats] Trigger 'Die' disparado");
 
-    // 4. Esconde UI
-    EnemyHealthBar healthBar = GetComponentInChildren<EnemyHealthBar>();
-    if (healthBar != null) healthBar.gameObject.SetActive(false);
-}
+        // 4. Esconde UI
+        EnemyHealthBar healthBar = GetComponentInChildren<EnemyHealthBar>();
+        if (healthBar != null) healthBar.gameObject.SetActive(false);
+    }
 
     [ClientRpc]
     private void RpcResetAnimator()
@@ -447,13 +459,13 @@ private void RpcOnDeath()
             anim.SetBool("IsDead", false);
             anim.SetBool("IsMoving", false);
             anim.SetBool("IsAttacking", false);
-            
+
             // Reseta triggers
             anim.ResetTrigger("Die");
             anim.ResetTrigger("Attack");
             anim.ResetTrigger("Hit");
-            
-            // Volta para idle (ajuste "Parado1" se seu estado idle tiver outro nome)
+
+            // Volta para idle
             int idleHash = Animator.StringToHash("Parado1");
             if (anim.HasState(0, idleHash))
             {
@@ -461,22 +473,18 @@ private void RpcOnDeath()
             }
             else
             {
-                // Fallback para o estado default (entry)
                 anim.Play(0, 0, 0f);
             }
-            
+
             if (showDebugLogs)
                 Debug.Log("[EnemyStats] Animator resetado para respawn");
         }
     }
 
-    /// <summary>
-    /// Helper: Verifica se o Animator tem um parâmetro com nome e tipo específicos.
-    /// </summary>
     private bool HasAnimatorParameter(Animator animator, string paramName, AnimatorControllerParameterType type)
     {
         if (animator == null || animator.parameters == null) return false;
-        
+
         foreach (var param in animator.parameters)
         {
             if (param.name == paramName && param.type == type)

@@ -110,6 +110,7 @@ GameObject:
   - component: {fileID: 7698005166891637539}
   - component: {fileID: -3234488136537631665}
   - component: {fileID: 6619894681889555154}
+  - component: {fileID: 5552079512521076602}
   - component: {fileID: 4671171365136999713}
   - component: {fileID: 1587605328692535667}
   - component: {fileID: 7972398648779589644}
@@ -302,6 +303,39 @@ CharacterController:
   m_SkinWidth: 0.08
   m_MinMoveDistance: 0.001
   m_Center: {x: 0, y: 0, z: 0}
+--- !u!114 &5552079512521076602
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 141669980532557786}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fe3227c3f16bb674eb4f2b74b02e42d3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::TOP.Gameplay.PlayerController
+  syncMethod: 0
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0
+  CharacterId: 0
+  AccountId: 0
+  CharacterName: 
+  Job: 0
+  Level: 0
+  CurrentHp: 0
+  CurrentMp: 0
+  CurrentSp: 0
+  Movement: {fileID: 0}
+  Stats: {fileID: 0}
+  Inventory: {fileID: 0}
+  Equipment: {fileID: 0}
+  Combat: {fileID: 0}
+  Skills: {fileID: 0}
+  Animation: {fileID: 0}
+  Consumables: {fileID: 0}
+  autoSaveInterval: 60
 --- !u!95 &4671171365136999713
 Animator:
   serializedVersion: 7
@@ -419,6 +453,11 @@ MonoBehaviour:
   runSpeed: 10
   rotationSpeed: 500
   stoppingDistance: 0.1
+  enemyLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  raycastDistance: 100
+  showDebugRay: 1
 --- !u!114 &7983439657652189613
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -476,6 +515,7 @@ MonoBehaviour:
   attackRange: 2.5
   attackCooldown: 1
   attackPoint: {fileID: 0}
+  showSelectionCircle: 1
 --- !u!114 &7401009070347969891
 MonoBehaviour:
   m_ObjectHideFlags: 0

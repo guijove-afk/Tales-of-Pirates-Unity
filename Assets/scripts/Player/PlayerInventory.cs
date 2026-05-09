@@ -15,18 +15,41 @@ namespace TOP.Player
         private string _inventoryData = "";
 
         private readonly InventoryItem[] _slots = new InventoryItem[40];
-        
+
         public event Action OnInventoryChanged;
         public event Action<int, InventoryItem> OnSlotChanged;
         public event Action<InventoryItem, int> OnItemAdded;
         public event Action<InventoryItem, int> OnItemRemoved;
-        
+
         public int totalSlots => _slots.Length;
 
         void Awake()
         {
             for (int i = 0; i < _slots.Length; i++)
                 _slots[i] = null;
+        }
+
+        // ✅ NOVO: Quando o player spawna, se registra no InventoryUI
+        public override void OnStartLocalPlayer()
+        {
+            base.OnStartLocalPlayer();
+
+            // Aguarda 1 frame para garantir que o InventoryUI Instance já existe
+            Invoke(nameof(RegisterInInventoryUI), 0.1f);
+        }
+
+        void RegisterInInventoryUI()
+        {
+            if (InventoryUI.Instance != null)
+            {
+                InventoryUI.Instance.SetPlayerInventory(this);
+                Debug.Log($"[PlayerInventory] ✅ Registrado no InventoryUI: {name}");
+            }
+            else
+            {
+                Debug.LogWarning("[PlayerInventory] InventoryUI.Instance é NULL! Tentando novamente...");
+                Invoke(nameof(RegisterInInventoryUI), 0.5f);
+            }
         }
 
         #region Getters & Helpers
@@ -55,7 +78,6 @@ namespace TOP.Player
             return _slots[index];
         }
 
-        // CORREÇÃO: Apenas UMA função GetItem (Removida a duplicata da linha 191)
         public InventoryItem GetItem(ushort slotIndex)
         {
             return GetSlot(slotIndex);
@@ -65,35 +87,32 @@ namespace TOP.Player
 
         #region Server Logic
 
-  [Server]
-public bool AddItem(int itemId, int quantity, ushort slotIndex = 0)
-{
-    // Se o slotIndex passado for 0, mas o slot estiver ocupado, 
-    // precisamos procurar um slot vazio automaticamente.
-    if (slotIndex == 0 && _slots[0] != null)
-    {
-        int empty = FindEmptySlot();
-        if (empty == -1) return false; // Inventário cheio
-        slotIndex = (ushort)empty;
-    }
-    else if (slotIndex >= _slots.Length || _slots[slotIndex] != null)
-    {
-        // Se o slot específico estiver fora ou ocupado e não for o padrão
-        int empty = FindEmptySlot();
-        if (empty == -1) return false;
-        slotIndex = (ushort)empty;
-    }
+        [Server]
+        public bool AddItem(int itemId, int quantity, ushort slotIndex = 0)
+        {
+            if (slotIndex == 0 && _slots[0] != null)
+            {
+                int empty = FindEmptySlot();
+                if (empty == -1) return false;
+                slotIndex = (ushort)empty;
+            }
+            else if (slotIndex >= _slots.Length || _slots[slotIndex] != null)
+            {
+                int empty = FindEmptySlot();
+                if (empty == -1) return false;
+                slotIndex = (ushort)empty;
+            }
 
-    _slots[slotIndex] = new InventoryItem
-    {
-        ItemId = itemId,
-        Quantity = quantity,
-        SlotIndex = slotIndex
-    };
+            _slots[slotIndex] = new InventoryItem
+            {
+                ItemId = itemId,
+                Quantity = quantity,
+                SlotIndex = slotIndex
+            };
 
-    SerializeInventory();
-    return true; // Retorna true confirmando que adicionou
-}
+            SerializeInventory();
+            return true;
+        }
 
         [Server]
         public void RemoveItem(ushort slotIndex, int quantity)
@@ -183,7 +202,6 @@ public bool AddItem(int itemId, int quantity, ushort slotIndex = 0)
             SerializeInventory();
         }
 
-        // CORREÇÃO: Unificadas as funções CmdUseItem em uma só (ushort)
         [Command]
         public void CmdUseItem(ushort slotIndex)
         {

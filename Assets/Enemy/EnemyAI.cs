@@ -3,11 +3,7 @@ using UnityEngine.AI;
 using Mirror;
 using System;
 using TOP.Player;
-
-
-
-// SE O SEU PlayerStats ESTIVER DENTRO DE UMA PASTA COM NAMESPACE, 
-// ADICIONE O "using NomeDoSeuNamespace;" AQUI.
+using TOP.Core;
 
 [RequireComponent(typeof(EnemyStats))]
 [RequireComponent(typeof(NavMeshAgent))]
@@ -38,27 +34,51 @@ public class EnemyAI : NetworkBehaviour
     {
         stats = GetComponent<EnemyStats>();
         agent = GetComponent<NavMeshAgent>();
-        
+
         anim = GetComponent<Animator>();
         if (anim == null)
             anim = GetComponentInChildren<Animator>();
-        
+
         spawnPosition = transform.position;
     }
 
     void Start()
     {
+        // ✅ CORRIGIDO: Configura NavMeshAgent corretamente
         if (agent != null)
         {
             agent.speed = stats != null ? stats.MoveSpeed : 3.5f;
-            agent.stoppingDistance = attackRange;
+            agent.stoppingDistance = attackRange * 0.8f;  // ✅ Para um pouco antes do attackRange
             agent.acceleration = 8f;
             agent.angularSpeed = rotationSpeed * 36f;
             agent.autoBraking = true;
+
+            // ✅ CORRIGIDO: Garante que o agent está ativo
+            if (!agent.isActiveAndEnabled)
+            {
+                Debug.LogWarning("[EnemyAI] NavMeshAgent não está ativo! Ativando...");
+                agent.enabled = true;
+            }
+
+            // ✅ CORRIGIDO: Verifica se está em um NavMesh válido
+            if (!agent.isOnNavMesh)
+            {
+                Debug.LogWarning("[EnemyAI] Não está em um NavMesh válido! Tentando warp...");
+                NavMeshHit hit;
+                if (NavMesh.SamplePosition(transform.position, out hit, 5f, NavMesh.AllAreas))
+                {
+                    agent.Warp(hit.position);
+                    Debug.Log("[EnemyAI] ✅ Warp para NavMesh bem-sucedido!");
+                }
+                else
+                {
+                    Debug.LogError("[EnemyAI] ❌ Não conseguiu encontrar NavMesh próximo!");
+                }
+            }
         }
 
         if (showAIDebugLogs)
-            Debug.Log("[EnemyAI] " + gameObject.name + " iniciado.");
+            Debug.Log("[EnemyAI] " + gameObject.name + " iniciado. isOnNavMesh=" + (agent?.isOnNavMesh ?? false));
     }
 
     void Update()
@@ -70,6 +90,18 @@ public class EnemyAI : NetworkBehaviour
             if (currentState != AIState.Dead)
                 ChangeState(AIState.Dead);
             return;
+        }
+
+        // ✅ CORRIGIDO: Verifica se o agent está em NavMesh antes de atualizar
+        if (agent != null && !agent.isOnNavMesh)
+        {
+            // Tenta recolocar no NavMesh
+            NavMeshHit hit;
+            if (NavMesh.SamplePosition(transform.position, out hit, 3f, NavMesh.AllAreas))
+            {
+                agent.Warp(hit.position);
+            }
+            return;  // Sai do Update até conseguir estar no NavMesh
         }
 
         switch (currentState)
@@ -107,7 +139,7 @@ public class EnemyAI : NetworkBehaviour
                 break;
             case AIState.Return:
                 target = null;
-                if (agent != null && agent.isActiveAndEnabled)
+                if (agent != null && agent.isActiveAndEnabled && agent.isOnNavMesh)
                     agent.SetDestination(spawnPosition);
                 break;
             case AIState.Dead:
@@ -123,7 +155,15 @@ public class EnemyAI : NetworkBehaviour
 
     private void UpdateIdle()
     {
-        Collider[] hits = Physics.OverlapSphere(transform.position, aggroRange, LayerMask.GetMask("Player"));
+        // ✅ CORRIGIDO: Usa LayerMask.GetMask com verificação
+        int playerLayer = LayerMask.GetMask("Player");
+        if (playerLayer == 0)
+        {
+            Debug.LogWarning("[EnemyAI] Layer 'Player' não encontrada! Verifique Project Settings > Tags and Layers.");
+            return;
+        }
+
+        Collider[] hits = Physics.OverlapSphere(transform.position, aggroRange, playerLayer);
 
         Transform closestPlayer = null;
         float closestDist = float.MaxValue;
@@ -133,8 +173,13 @@ public class EnemyAI : NetworkBehaviour
             var netIdComp = hit.GetComponent<NetworkIdentity>();
             if (netIdComp == null) continue;
 
-            // Tenta pegar o PlayerStats. Se o erro persistir, o problema está no arquivo PlayerStats.cs
+            // ✅ CORRIGIDO: Busca PlayerStats com fallback
             PlayerStats pStats = hit.GetComponent<PlayerStats>();
+            if (pStats == null)
+                pStats = hit.GetComponentInParent<PlayerStats>();
+            if (pStats == null)
+                pStats = hit.GetComponentInChildren<PlayerStats>();
+
             if (pStats == null || pStats.IsDead) continue;
 
             float dist = Vector3.Distance(transform.position, hit.transform.position);
@@ -164,7 +209,10 @@ public class EnemyAI : NetworkBehaviour
             return;
         }
 
+        // ✅ CORRIGIDO: Busca PlayerStats com fallback
         PlayerStats pStats = target.GetComponent<PlayerStats>();
+        if (pStats == null)
+            pStats = target.GetComponentInParent<PlayerStats>();
         if (pStats == null || pStats.IsDead)
         {
             ChangeState(AIState.Idle);
@@ -186,7 +234,8 @@ public class EnemyAI : NetworkBehaviour
             return;
         }
 
-        if (agent != null && agent.isActiveAndEnabled)
+        // ✅ CORRIGIDO: Só seta destino se estiver em NavMesh
+        if (agent != null && agent.isActiveAndEnabled && agent.isOnNavMesh)
         {
             agent.SetDestination(target.position);
         }
@@ -205,6 +254,8 @@ public class EnemyAI : NetworkBehaviour
         }
 
         PlayerStats pStats = target.GetComponent<PlayerStats>();
+        if (pStats == null)
+            pStats = target.GetComponentInParent<PlayerStats>();
         if (pStats == null || pStats.IsDead)
         {
             ChangeState(AIState.Idle);
@@ -213,7 +264,7 @@ public class EnemyAI : NetworkBehaviour
 
         float distToTarget = Vector3.Distance(transform.position, target.position);
 
-        if (distToTarget > attackRange * 1.2f)
+        if (distToTarget > attackRange * 1.5f)  // ✅ Histerese maior para evitar flicker
         {
             ChangeState(AIState.Chase);
             return;
@@ -236,6 +287,25 @@ public class EnemyAI : NetworkBehaviour
 
         if (anim != null)
             anim.SetTrigger("Attack");
+
+        // ✅ Aplica dano no player
+        PlayerStats pStats = target.GetComponent<PlayerStats>();
+        if (pStats == null)
+            pStats = target.GetComponentInParent<PlayerStats>();
+
+        if (pStats != null && !pStats.IsDead)
+        {
+            int damage = CalculateDamage();
+            pStats.TakeDamage(damage, netId, DamageType.Physical);
+            Debug.Log($"[EnemyAI] ⚔️ {gameObject.name} causou {damage} de dano em {target.name}");
+        }
+    }
+
+    [Server]
+    private int CalculateDamage()
+    {
+        float variance = UnityEngine.Random.Range(0.9f, 1.1f);
+        return Mathf.Max(1, Mathf.RoundToInt(stats.Attack * variance));
     }
 
     #endregion
@@ -252,7 +322,7 @@ public class EnemyAI : NetworkBehaviour
             return;
         }
 
-        if (agent != null && agent.isActiveAndEnabled && !agent.hasPath)
+        if (agent != null && agent.isActiveAndEnabled && agent.isOnNavMesh && !agent.hasPath)
         {
             agent.SetDestination(spawnPosition);
         }
@@ -265,10 +335,10 @@ public class EnemyAI : NetworkBehaviour
     private void UpdateAnimation()
     {
         if (anim == null) return;
-        
+
         bool isMoving = agent != null && agent.isActiveAndEnabled && 
-                        agent.hasPath && agent.remainingDistance > agent.stoppingDistance + 0.1f;
-        
+                        agent.isOnNavMesh && agent.hasPath && agent.remainingDistance > agent.stoppingDistance + 0.1f;
+
         anim.SetBool("IsMoving", isMoving);
         anim.SetBool("IsAttacking", currentState == AIState.Attack);
     }
@@ -286,7 +356,7 @@ public class EnemyAI : NetworkBehaviour
 
     private void SafeResetPath()
     {
-        if (agent != null && agent.isActiveAndEnabled)
+        if (agent != null && agent.isActiveAndEnabled && agent.isOnNavMesh)
         {
             agent.ResetPath();
         }

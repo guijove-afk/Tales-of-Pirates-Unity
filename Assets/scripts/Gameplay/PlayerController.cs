@@ -1,11 +1,11 @@
 using UnityEngine;
 using Mirror;
-using TOP.Player;  // ✅ Todos os componentes aqui
-using TOP.Core;    // ✅ ItemData, SkillData
-using TOP.Inventory; // ✅ ItemDatabase
+using TOP.Player;
+using TOP.Core;
+using TOP.Inventory;
 using System.Collections;
 using System.Linq;
-using TOP.UI; // ✅ UIManager para mensagens
+using TOP.UI;
 
 namespace TOP.Gameplay
 {
@@ -43,6 +43,7 @@ namespace TOP.Gameplay
 
         void Awake()
         {
+            // ✅ Garante que todos os componentes sejam encontrados
             Movement = GetComponent<PlayerMovement>();
             Stats = GetComponent<PlayerStats>();
             Inventory = GetComponent<PlayerInventory>();
@@ -50,38 +51,38 @@ namespace TOP.Gameplay
             Combat = GetComponent<PlayerCombat>();
             Skills = GetComponent<PlayerSkills>();
             Animation = GetComponent<PlayerAnimation>();
-            // Consumables = GetComponent<PlayerConsumables>(); // ✅ Criaremos depois
+            Consumables = GetComponent<PlayerConsumables>();
+
+            // ✅ Log de debug para confirmar
+            Debug.Log($"[PlayerController] Awake em {gameObject.name}");
+            Debug.Log($"  Movement: {(Movement != null ? "OK" : "NULL")}");
+            Debug.Log($"  Combat: {(Combat != null ? "OK" : "NULL")}");
+            Debug.Log($"  Stats: {(Stats != null ? "OK" : "NULL")}");
         }
 
-public override void OnStartLocalPlayer()
-{
-    base.OnStartLocalPlayer();
+        public override void OnStartLocalPlayer()
+        {
+            base.OnStartLocalPlayer();
 
-    // ✅ CameraFollow no PLAYER (não na Main Camera)
-    CameraFollow camFollow = GetComponent<CameraFollow>();
-    if (camFollow != null)
-        camFollow.enabled = true;
+            CameraFollow camFollow = GetComponent<CameraFollow>();
+            if (camFollow != null)
+                camFollow.enabled = true;
 
-    UIManager.Instance?.SetupLocalPlayer(this);
-}
+            UIManager.Instance?.SetupLocalPlayer(this);
+        }
 
         public override void OnStartServer()
         {
             base.OnStartServer();
-
-            // ✅ DebugGiveItem inicial
             StartCoroutine(GiveStarterItems());
         }
 
-        // ✅ Dá itens iniciais para teste
         IEnumerator GiveStarterItems()
         {
             yield return new WaitForSeconds(1f);
-
-            Inventory.DebugGiveItem(1001, 99);  // Health Potion
-            Inventory.DebugGiveItem(1002, 1);   // Iron Sword
-            Skills.LearnSkill(1001, 1);         // Fireball skill
-
+            Inventory.DebugGiveItem(1001, 99);
+            Inventory.DebugGiveItem(1002, 1);
+            Skills.LearnSkill(1001, 1);
             Debug.Log($"[PlayerController] Itens iniciais dados para {CharacterName}");
         }
 
@@ -94,24 +95,19 @@ public override void OnStartLocalPlayer()
             }
         }
 
-[Server]
-public void InitializeFromDatabase(CharacterDbModel data) // Use o nome da classe que representa sua tabela
-{
-    // Por enquanto, mantemos o MOCK, mas o parâmetro resolve o erro de compilação
-    CharacterId = netId; 
-    CharacterName = data != null ? data.name : $"Player{netId}";
-    
-    // ... restante do seu código de inicialização
-    Debug.Log($"[PlayerController] Pronto para carregar dados de: {CharacterName}");
-}
+        [Server]
+        public void InitializeFromDatabase(object data)
+        {
+            CharacterId = netId;
+            CharacterName = $"Player{netId}";
+            Debug.Log($"[PlayerController] Pronto para carregar dados de: {CharacterName}");
+        }
 
         [Server]
         public void SaveToDatabase()
         {
             if (Stats == null) return;
-
             Debug.Log($"[PlayerController] Salvando {CharacterName}: HP={Stats.CurrentHp}/{Stats.MaxHp}");
-            // TODO: DatabaseService real
         }
 
         [Command]
@@ -145,11 +141,7 @@ public void InitializeFromDatabase(CharacterDbModel data) // Use o nome da class
         [ClientRpc]
         public void RpcTakeDamage(int damage, Vector3 hitPosition)
         {
-            // ✅ Popup simples no console (popup real depois)
             Debug.Log($"<color=red>-{damage}</color> em {CharacterName}");
-
-            // Hit flash (criaremos depois)
-            // GetComponentInChildren<HitFlashEffect>()?.Flash();
         }
 
         [ClientRpc]
@@ -179,7 +171,6 @@ public void InitializeFromDatabase(CharacterDbModel data) // Use o nome da class
             Debug.Log($"[{type}] <color={color}>{message}</color>");
         }
 
-        // ✅ Chamado por PlayerStats
         [Server]
         public void Die()
         {
@@ -201,9 +192,7 @@ public void InitializeFromDatabase(CharacterDbModel data) // Use o nome da class
             CurrentHp = Stats.MaxHp;
             CurrentMp = Stats.MaxMp;
             CurrentSp = Stats.MaxSp;
-
-            transform.position = Vector3.zero + Vector3.up * 1.5f;  // ✅ Corrigido
-
+            transform.position = Vector3.zero + Vector3.up * 1.5f;
             RpcRespawn();
             Debug.Log($"[PlayerController] {CharacterName} ressuscitado!");
         }
@@ -222,7 +211,6 @@ public void InitializeFromDatabase(CharacterDbModel data) // Use o nome da class
                 SaveToDatabase();
         }
 
-        // ✅ Enum local
         public enum PlayerMessageType
         {
             Info, Warning, Error, Success

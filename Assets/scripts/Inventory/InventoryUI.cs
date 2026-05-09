@@ -5,8 +5,7 @@ using TMPro;
 using System.Collections.Generic;
 using TOP.Core;
 using TOP.Player;
-using TOP.Inventory;  // ✅ seu ItemDatabase    
-
+using TOP.Inventory;
 
 namespace TOP.Inventory
 {
@@ -58,59 +57,44 @@ namespace TOP.Inventory
 
         void Start()
         {
-            Invoke(nameof(Setup), 0.5f);
+            // ✅ NÃO busca mais o player aqui. Espera o PlayerInventory se registrar.
+            // Só inicializa a UI (slots, canvas, etc.)
+            InitializeUI();
         }
 
-        void Setup()
+        void Update()
         {
-            if (isSetup) return;
-
-            Debug.Log("[InventoryUI] ====== SETUP INICIADO ======");
-
-            PlayerInventory[] allInventories = FindObjectsByType<PlayerInventory>(FindObjectsInactive.Include);
-            Debug.Log($"[InventoryUI] Encontrados {allInventories.Length} PlayerInventory na cena");
-
-            foreach (var inv in allInventories)
-            {
-                Debug.Log($"[InventoryUI] PlayerInventory: {inv.name}, isLocalPlayer: {inv.isLocalPlayer}");
-                if (inv.isLocalPlayer)
-                {
-                    playerInventory = inv;
-                    break;
-                }
-            }
-
-            if (playerInventory == null && allInventories.Length > 0)
-            {
-                playerInventory = allInventories[0];
-                Debug.LogWarning("[InventoryUI] Nenhum player local. Usando primeiro disponível.");
-            }
-
-            if (playerInventory != null)
-            {
-                playerEquipment = playerInventory.GetComponent<PlayerEquipment>();
-                Debug.Log($"[InventoryUI] ✅ Conectado: {playerInventory.name}");
-            }
-            else
-            {
-                Debug.LogError("[InventoryUI] ❌ Nenhum PlayerInventory encontrado!");
+            if (playerInventory == null || !playerInventory.isLocalPlayer)
                 return;
+
+            if (Input.GetKeyDown(toggleKey))
+            {
+                ToggleInventory();
             }
+        }
+
+        // ✅ NOVO: Chamado pelo PlayerInventory quando o Player(Clone) spawna
+        public void SetPlayerInventory(PlayerInventory inv)
+        {
+            if (inv == null || !inv.isLocalPlayer) return;
+            if (isSetup) return;  // Já configurado
+
+            Debug.Log($"[InventoryUI] ✅ PlayerInventory registrado: {inv.name}");
+            playerInventory = inv;
+            playerEquipment = inv.GetComponent<PlayerEquipment>();
+
+            SetupEvents();
+            isSetup = true;
+
+            RefreshInventory();
+            RefreshEquipment();
+        }
+
+        void InitializeUI()
+        {
+            Debug.Log("[InventoryUI] Inicializando UI...");
 
             FindExistingSlots();
-
-            // ✅ Eventos CORRETOS do PlayerInventory corrigido
-            playerInventory.OnInventoryChanged += RefreshInventory;
-            playerInventory.OnSlotChanged += OnInventorySlotChanged;
-            playerInventory.OnItemAdded += OnItemAdded;
-            playerInventory.OnItemRemoved += OnItemRemoved;
-
-            if (playerEquipment != null)
-            {
-                playerEquipment.OnItemEquipped += OnItemEquipped;
-                playerEquipment.OnItemUnequipped += OnItemUnequipped;
-                Debug.Log("[InventoryUI] ✅ PlayerEquipment conectado");
-            }
 
             if (inventoryPanel != null)
             {
@@ -134,16 +118,25 @@ namespace TOP.Inventory
 
             inventoryPanel?.SetActive(false);
             tooltipPanel?.SetActive(false);
-            isSetup = true;
-
-            RefreshInventory();
-            RefreshEquipment();
-
-            Debug.Log("[InventoryUI] ====== SETUP COMPLETO ======");
         }
-        public void CloseInventory() {
-            gameObject.SetActive(false);
+
+        void SetupEvents()
+        {
+            if (playerInventory == null) return;
+
+            playerInventory.OnInventoryChanged += RefreshInventory;
+            playerInventory.OnSlotChanged += OnInventorySlotChanged;
+            playerInventory.OnItemAdded += OnItemAdded;
+            playerInventory.OnItemRemoved += OnItemRemoved;
+
+            if (playerEquipment != null)
+            {
+                playerEquipment.OnItemEquipped += OnItemEquipped;
+                playerEquipment.OnItemUnequipped += OnItemUnequipped;
+                Debug.Log("[InventoryUI] ✅ PlayerEquipment conectado");
+            }
         }
+
         void FindExistingSlots()
         {
             if (inventoryGrid != null)
@@ -170,6 +163,21 @@ namespace TOP.Inventory
             }
         }
 
+        public void ToggleInventory()
+        {
+            if (inventoryPanel == null) return;
+            bool willShow = !inventoryPanel.activeSelf;
+            inventoryPanel.SetActive(willShow);
+            tooltipPanel?.SetActive(false);
+            Debug.Log($"[InventoryUI] Inventário {(willShow ? "ABERTO" : "FECHADO")}");
+        }
+
+        public void CloseInventory()
+        {
+            inventoryPanel?.SetActive(false);
+            tooltipPanel?.SetActive(false);
+        }
+
         void OnDestroy()
         {
             if (Instance == this) Instance = null;
@@ -187,13 +195,9 @@ namespace TOP.Inventory
             }
         }
 
-        // resto do código igual até OnInventorySlotChanged...
-
-        // ✅ OnInventorySlotChanged CORRIGIDO
         void OnInventorySlotChanged(int index, InventoryItem newSlot)
         {
             Debug.Log($"[InventoryUI] OnInventorySlotChanged index:{index}, ItemId:{newSlot?.ItemId ?? 0}");
-
             if (inventorySlots == null || index < 0 || index >= inventorySlots.Length) return;
 
             if (newSlot == null)
@@ -202,27 +206,22 @@ namespace TOP.Inventory
                 return;
             }
 
-            var itemData = ItemDatabase.Instance?.GetItem(newSlot.ItemId);  // ✅ ItemId maiúsculo
-            Debug.Log($"[InventoryUI] Slot {index}: ItemData={(itemData?.itemName ?? "NULL")}");
-
-            inventorySlots[index].SetItem(itemData, newSlot.Quantity, 100);  // ✅ Quantity maiúsculo, durability fake
+            var itemData = ItemDatabase.Instance?.GetItem(newSlot.ItemId);
+            inventorySlots[index].SetItem(itemData, newSlot.Quantity, 100);
         }
 
-        // ✅ OnItemAdded CORRIGIDO (recebe InventoryItem, não ItemData)
         void OnItemAdded(InventoryItem item, int slotIndex)
         {
             Debug.Log($"[InventoryUI] OnItemAdded: ItemId={item.ItemId} x{item.Quantity} no slot {slotIndex}");
             RefreshInventory();
         }
 
-        // ✅ OnItemRemoved CORRIGIDO
         void OnItemRemoved(InventoryItem item, int slotIndex)
         {
             Debug.Log($"[InventoryUI] OnItemRemoved: ItemId={item.ItemId} x{item.Quantity} do slot {slotIndex}");
             RefreshInventory();
         }
 
-        // ✅ OnItemEquipped CORRIGIDO (recebe InventoryItem, não EquipmentData)
         void OnItemEquipped(InventoryItem item, EquipmentSlot slot)
         {
             Debug.Log($"[InventoryUI] OnItemEquipped: {slot} - ItemId={item.ItemId}");
@@ -237,16 +236,13 @@ namespace TOP.Inventory
             RefreshInventory();
         }
 
-        // ✅ RefreshInventory CORRIGIDO
         void RefreshInventory()
         {
             if (playerInventory == null || inventorySlots == null) return;
 
-            Debug.Log($"[InventoryUI] RefreshInventory - Total slots: {inventorySlots.Length}");
-
             for (int i = 0; i < inventorySlots.Length; i++)
             {
-                InventoryItem slot = playerInventory.GetSlot((ushort)i);  // ✅ GetSlot resolvido
+                InventoryItem slot = playerInventory.GetSlot((ushort)i);
                 if (slot == null)
                 {
                     inventorySlots[i].Clear();
@@ -255,75 +251,49 @@ namespace TOP.Inventory
 
                 var itemData = ItemDatabase.Instance?.GetItem(slot.ItemId);
                 if (itemData != null)
+                    inventorySlots[i].SetItem(itemData, slot.Quantity, 100);
+                else
+                    inventorySlots[i].Clear();
+            }
+        }
+
+        void RefreshEquipment()
+        {
+            if (playerEquipment == null) return;
+
+            foreach (var kvp in equipmentSlots)
+            {
+                var equippedItem = playerEquipment.GetEquippedItem(kvp.Key);
+                if (equippedItem != null)
                 {
-                    Debug.Log($"[InventoryUI] Refresh slot {i}: {itemData.itemName}");
-                    inventorySlots[i].SetItem(itemData, slot.Quantity, 100);  // ✅ Quantity correto
+                    var data = ItemDatabase.Instance.GetEquipment(equippedItem.ItemId);
+                    if (data != null)
+                        kvp.Value.SetItem(data);
+                    else
+                        kvp.Value.Clear();
                 }
                 else
                 {
-                    inventorySlots[i].Clear();
+                    kvp.Value.Clear();
                 }
             }
         }
 
-void RefreshEquipment()
-{
-    if (playerEquipment == null) return;
-
-    foreach (var kvp in equipmentSlots)
-    {
-        // 1. Pega o item equipado (que contém apenas ID e durabilidade)
-        var equippedItem = playerEquipment.GetEquippedItem(kvp.Key); 
-
-        if (equippedItem != null)
-        {
-            // 2. BUSCA os dados reais do equipamento no ItemDatabase usando o ID
-            var data = ItemDatabase.Instance.GetEquipment(equippedItem.ItemId);
-
-            if (data != null)
-            {
-                // 3. Agora passamos o 'data' (EquipmentData) que a UI espera
-                kvp.Value.SetItem(data); 
-            }
-            else
-            {
-                kvp.Value.Clear();
-            }
-        }
-        else
-        {
-            kvp.Value.Clear();
-        }
-    }
-}
-
-        // ✅ OnSlotDoubleClick CORRIGIDO
         public void OnSlotDoubleClick(int slotIndex)
         {
-            Debug.Log($"[InventoryUI] OnSlotDoubleClick({slotIndex})");
-
             if (playerInventory == null) return;
-
             var slot = playerInventory.GetSlot((ushort)slotIndex);
             if (slot == null) return;
 
             var itemData = ItemDatabase.Instance?.GetItem(slot.ItemId);
             if (itemData == null) return;
 
-            Debug.Log($"[InventoryUI] Double-click: {itemData.itemName}");
-
             if (itemData is EquipmentData equipData)
-            {
-                Debug.Log($"[InventoryUI] Equipando {equipData.slot}");
-                playerInventory.CmdEquipItem((ushort)slotIndex, equipData.slot);  // ✅ CmdEquipItem correto
-            }
+                playerInventory.CmdEquipItem((ushort)slotIndex, equipData.slot);
             else
-            {
-                playerInventory.CmdUseItem( (ushort)slotIndex);  // Poções, etc.
-            }
+                playerInventory.CmdUseItem((ushort)slotIndex);
         }
 
-        // resto dos métodos igual...
         public void OnSlotSelected(int slotIndex)
         {
             selectedSlot = slotIndex;
@@ -343,25 +313,20 @@ void RefreshEquipment()
 
             var equipData = ItemDatabase.Instance?.GetEquipment(slot.ItemId);
             if (equipData != null && equipData.slot == targetSlot)
-            {
                 playerInventory.CmdEquipItem((ushort)inventoryIndex, targetSlot);
-            }
         }
 
-   public void OnEquipmentDoubleClick(EquipmentSlot slot)
-{
-    // Mude de playerEquipment para playerInventory
-    playerInventory?.CmdUnequipItem(slot);
-}
+        public void OnEquipmentDoubleClick(EquipmentSlot slot)
+        {
+            playerInventory?.CmdUnequipItem(slot);
+        }
 
-public void OnEquipmentDraggedToInventory(EquipmentSlot slot, int targetInventoryIndex)
-{
-    // Mude de playerEquipment para playerInventory
-    playerInventory?.CmdUnequipItem(slot);
-}
+        public void OnEquipmentDraggedToInventory(EquipmentSlot slot, int targetInventoryIndex)
+        {
+            playerInventory?.CmdUnequipItem(slot);
+        }
 
-        // resto dos métodos tooltip, drag, etc. permanecem iguais...
-        public void ShowTooltip(ItemData item, Vector3 position)  // ✅ ItemData, não EquipmentData
+        public void ShowTooltip(ItemData item, Vector3 position)
         {
             if (item == null || tooltipPanel == null) return;
             tooltipName.text = item.itemName;
@@ -386,8 +351,5 @@ public void OnEquipmentDraggedToInventory(EquipmentSlot slot, int targetInventor
         {
             tooltipPanel?.SetActive(false);
         }
-
-        // HandlePanelDrag, IsMouseOverInventory, ToggleInventory, etc. permanecem iguais...
-        // [código igual ao seu original para drag, toggle, etc.]
     }
 }
